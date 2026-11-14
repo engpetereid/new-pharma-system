@@ -4,21 +4,21 @@ namespace App\Http\Controllers\Viewer;
 
 use App\Http\Controllers\Controller;
 use App\Models\Drug;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ViewerDrugController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // ترتيب الأدوية حسب الأحدث
-        $drugs = Drug::latest()->paginate(10);
+        // عرض كل الأدوية مع أرصدتها وأسعارها
+        $drugs = Drug::filteredInventory($request);
+
         return view('viewer.drugs.index', compact('drugs'));
     }
-
 
     /**
      * Display the specified resource.
@@ -59,6 +59,7 @@ class ViewerDrugController extends Controller
         // 3. تصدير إكسيل
         if ($request->has('export') && $request->export == 'excel') {
             $exportData = (clone $query)->with(['invoice.pharmacist', 'invoice.representative'])->latest()->get();
+
             return $this->exportExcel($exportData, $drug, $totalQuantitySold, $totalRevenue);
         }
 
@@ -83,31 +84,38 @@ class ViewerDrugController extends Controller
      */
     private function exportExcel($data, $drug, $totalQty, $totalRev)
     {
-        $filename = "drug_report_{$drug->id}_" . date('Y-m-d') . ".csv";
+        $filename = "drug_report_{$drug->id}_".date('Y-m-d').'.csv';
+
+        AuditService::log(
+            action: 'export_csv',
+            module: 'Drug',
+            entity: $drug,
+            description: "تصدير تقرير مبيعات الصنف ({$drug->name}) إلى ملف CSV بواسطة مستعرض"
+        );
 
         $callback = function () use ($data, $drug, $totalQty, $totalRev) {
             $file = fopen('php://output', 'w');
 
             // إضافة BOM لدعم اللغة العربية في Excel
-            fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-            fputcsv($file, ['تقرير صنف:', $drug->name]);
-            fputcsv($file, ['إجمالي الكمية المباعة:', $totalQty]);
-            fputcsv($file, ['إجمالي الإيرادات:', number_format($totalRev, 2) . ' ج.م']);
+            fputcsv($file, sanitize_csv_row(['تقرير صنف:', $drug->name]));
+            fputcsv($file, sanitize_csv_row(['إجمالي الكمية المباعة:', $totalQty]));
+            fputcsv($file, sanitize_csv_row(['إجمالي الإيرادات:', number_format($totalRev, 2).' ج.م']));
             fputcsv($file, []);
 
             // ترويسة الجدول
-            fputcsv($file, ['رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المندوب', 'الكمية', 'سعر البيع', 'الإجمالي', 'حالة الفاتورة']);
+            fputcsv($file, sanitize_csv_row(['رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المندوب', 'الكمية', 'سعر البيع', 'الإجمالي', 'حالة الفاتورة']));
 
             foreach ($data as $detail) {
-                $statusText = match ((int)($detail->invoice->status ?? 0)) {
+                $statusText = match ((int) ($detail->invoice->status ?? 0)) {
                     1 => 'مدفوع',
                     2 => 'آجل',
                     3 => 'جزئي',
                     default => '-'
                 };
 
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $detail->invoice->serial_number ?? $detail->invoice_id,
                     $detail->invoice->invoice_date ?? '-',
                     $detail->invoice->pharmacist->name ?? '-',
@@ -115,20 +123,18 @@ class ViewerDrugController extends Controller
                     $detail->quantity,
                     $detail->unit_price,
                     $detail->row_total,
-                    $statusText
-                ]);
+                    $statusText,
+                ]));
             }
             fclose($file);
         };
 
         return response()->stream($callback, 200, [
-            "Content-Type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma" => "no-cache",
-            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-            "Expires" => "0"
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=$filename",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ]);
     }
-
-
 }

@@ -1,0 +1,142 @@
+/* =====================================================================
+   RUQAX Pharmaceuticals — brand theme
+   Calm palette derived from the logo: softened navy, muted steel blue
+   and silver (lower saturation than the logo artwork itself). Loaded last so it overrides the
+   Modern Admin defaults (purple primary #666EE8).
+   ===================================================================== */
+:root {
+    --rq-navy-950: #0F1926;
+    --rq-navy-900: #142131;
+    --rq-navy-800: #1B2C42;
+    --rq-navy-700: #2A3D55;
+    --rq-primary: #3A6F98;        /* buttons / links (AA on white) */
+    --rq-primary-hover: #305F82;
+    --rq-primary-active: #274D6A;
+    --rq-blue: #5B8DB3;           /* the "X" in RUQAX */
+    --rq-cyan: #8DB4CE;           /* glow of the mark */
+    --rq-silver: #A1A2A6;
+    --rq-primary-50: #EEF3F7;
+    --rq-primary-100: #D8E3EC;
+    --rq-ring: rgba(58, 111, 152, 0.15);
+    --rq-grad: linear-gradient(135deg, #3A6F98 0%, #4A7EA6 100%);
+    --rq-grad-navy: linear-gradient(135deg, #2F3B4A 0%, #364352 100%);   /* soft slate (logo hue, low saturation) */
+}
+
+/* ---------- Primary color (replaces template purple) ---------- */
+.btn-primary,
+.btn-primary:not(:disabled):not(.disabled) {
+    background-color: var(--rq-primary) !important;
+    border-color: var(--rq-primary) !important;
+    color: #fff !important;
+}
+.btn-primary:hover, .btn-primary:focus { background-color: var(--rq-primary-hover) !important; border-color: var(--rq-primary-hover) !important; }
+.btn-primary:active, .btn-primary.active { background-color: var(--rq-primary-active) !important; border-color: var(--rq-primary-active) !important; }
+.btn-primary:focus, .btn-outline-primary:focus { box-shadow: 0 0 0 0.2rem var(--rq-ring) !important; }
+
+.btn-outline-primary { color: var(--rq-primary) !important; border-color: var(--rq-primary) !important; background-color: transparent; }
+.btn-outline-primary:hover, .btn-outline-primary.active { color: #fff !important; background-color: var(--rq-primary) !important; }
+
+.text-primary { color: var(--rq-primary) !important; }
+a.text-primary:hover { color: var(--rq-primary-hover) !important; }
+.bg-primary { background-color: var(--rq-primary) !important; }
+.border-primary { border-color: var(--rq-primary) !important; }
+.border-top-primary { border-top-color: var(--rq-primary) !important; }
+.border-left-primary { border-left-color: var(--rq-primary) !important; }
+.border-right-primary { border-right-color: var(--rq-primary) !important; }
+.border-bottom-primary { border-bottom-color: var(--rq-primary) !important; }
+.badge-primary { background-color: var(--rq-primary) !important; color: #fff !important; }
+.alert-primary { background-color: var(--rq-primary-50) !important; border-color: var(--rq-primary-100) !important; color: var(--rq-primary-active) !important; }
+.bg-gradient-x-primary { background-image: linear-gradient(to right, #3A6F98 0%, #5B8DB3 100%) !important; }
+.bg-gradient-y-primary { background-image: linear-gradient(to bottom, #305F82 0%, #5B8DB3 100%) !important; }
+
+a { color: var(--rq-primary); }
+a:hover { color: var(--rq-primary-hover); }
+
+/* Forms */
+.form-control:focus,
+.select2-container--default.select2-container--focus .select2-selection--multiple,
+.select2-container--default.select2-container--open .select2-selection--single {
+    border-color: var(--rq-primary) !important;
+    box-shadow: 0 0 0 0.2rem var(--rq-ring) !important;
+}
+.select2-container--default .select2-results__option--highlighted[aria-selected],
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background-color: var(--rq-primary) !important;
+    border-color: var(--rq-primary) !important;
+    color: #fff !important;
+}
+.custom-control-input:checked ~ .custom-control-label::before { background-color: var(--rq-primary) !important; border-color: var(--rq-primary) !important; }
+
+/* Pagination */
+.page-item.active .page-link {
+    background-color: var(--rq-primary) !important;
+    border-color: var(--rq-primary) !important;
+    box-shadow: none !important;
+}
+.page-link { color: var(--rq-primary) !important; }
+.page-link:hover { color: var(--rq-primary-hover) !important; background-color: var(--rq-primary-50) !important; border-color: var(--rq-primary-100) !important; }
+
+/* Tables: bg-primary header strips use the brand navy */
+thead.bg-primary, thead.bg-primary th { background-color: var(--rq-navy-800) !important; color: #fff !important; border-color: var(--rq-navy-800) !important; }
+
+/* ---------- Top navbar: navy, like the logo background ---------- */
+.header-navbar.main-header {
+    background: var(--rq-grad-navy) !important;
+}
+/* one continuous bar: inner parts are transparent so there is no seam */
+.header-navbar.main-header .navbar-wrapper,
+.header-navbar.main-header .navbar-header,
+.header-navbar.main-header .navbar-container {
+    background: transparent !important;
+}
+.header-navbar.main-header { border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.header-navbar.main-header .navbar-container .nav-link,
+.header-navbar.main-header .navbar-container .nav-link .ficon,
+.header-navbar.main-header .navbar-container .nav-link span,
+.header-navbar.main-header .navbar-header .nav-link,
+.header-navbar.main-header .navbar-header .nav-link i {
+    color: #E4E9EE !important;
+}
+.header-navbar.main-header .navbar-container .nav-link:hover span,
+.header-navbar.main-header .navbar-container .nav-link:hover .ficon { color: #5FB3D9 !important; }
+.header-navbar.main-header .avatar-content.bg-primary { background: var(--rq-grad) !important; }
+.header-navbar.main-header .dropdown-menu .dropdown-item { color: #1e293b; }
+
+.rq-brand { display: flex !important; align-items: center; gap: 10px; }
+.rq-brand img { height: 38px; width: 38px; flex-shrink: 0; border-radius: 10px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.rq-brand .rq-brand-text { display: flex; flex-direction: column; line-height: 1; margin: 0; }
+.rq-brand .rq-name { font-family: 'Quicksand', 'Cairo', sans-serif !important; font-weight: 700; font-size: 1.2rem; letter-spacing: 0.24em; color: #C4C6CA; }
+.rq-brand .rq-name b { color: #349AC6; font-weight: 700; }
+.rq-brand .rq-sub { font-family: 'Quicksand', 'Cairo', sans-serif !important; font-size: 0.5rem; letter-spacing: 0.2em; color: var(--rq-silver); margin-top: 4px; white-space: nowrap; }
+
+/* ---------- Sidebar ---------- */
+.main-menu.menu-light .navigation > li.active > a,
+.main-menu.menu-light .navigation > li .active > a,
+.main-menu.menu-light .navigation > li ul .active > a {
+    background: var(--rq-grad) !important;
+    color: #fff !important;
+    box-shadow: 0 2px 6px rgba(58, 111, 152, 0.18);
+    border-radius: 6px;
+}
+.main-menu.menu-light .navigation > li.active > a i,
+.main-menu.menu-light .navigation > li ul .active > a i { color: #fff !important; }
+.main-menu.menu-light .navigation li a:hover,
+.main-menu.menu-light .navigation > li.open > a { color: var(--rq-primary) !important; }
+.main-menu.menu-light .navigation > li.hover > a,
+.main-menu.menu-light .navigation > li:hover > a { background-color: var(--rq-primary-50); }
+.main-menu.menu-light .navigation > li ul li.active > a,
+.main-menu.menu-light .navigation > li ul .active > a { color: #fff !important; }
+.main-menu .navigation .navigation-header span { color: var(--rq-navy-700) !important; }
+
+/* ---------- Footer ---------- */
+.footer .rq-footer-brand { color: var(--rq-navy-800); font-weight: 700; letter-spacing: 0.08em; }
+.footer .rq-footer-brand b { color: var(--rq-blue); }
+
+/* Print: keep brand colors on paper */
+@media print {
+    .text-primary { color: var(--rq-primary) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* Page-load progress bar (template default is pink) */
+.pace .pace-progress { background: var(--rq-cyan) !important; }
+.pace .pace-progress-inner { box-shadow: none !important; }

@@ -16,6 +16,7 @@ class UserController extends Controller
     public function index()
     {
         $users = User::latest()->paginate(15);
+
         return view('admin.users.index', compact('users'));
     }
 
@@ -68,12 +69,18 @@ class UserController extends Controller
     {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,'.$user->id],
             'password' => ['nullable', 'confirmed', Rules\Password::defaults()],
             'role' => ['required', 'in:admin,viewer,accountant'],
         ], [
             'email.unique' => 'هذا البريد الإلكتروني مستخدم بالفعل لمستخدم آخر.',
         ]);
+
+        if (auth()->id() === $user->id && $request->role !== 'admin') {
+            return redirect()->back()
+                ->withErrors(['role' => 'لا يمكنك إلغاء صلاحية الأدمن عن حسابك الشخصي منعاً لفقدان الوصول للنظام.'])
+                ->withInput();
+        }
 
         $data = [
             'name' => $request->name,
@@ -105,11 +112,12 @@ class UserController extends Controller
 
         try {
             $user->delete();
+
             return redirect()->route('admin.users.index')
                 ->with(['success' => 'تم حذف المستخدم بنجاح.']);
         } catch (\Exception $e) {
             return redirect()->back()
-                ->with(['error' => 'حدث خطأ أثناء الحذف: ' . $e->getMessage()]);
+                ->with(['error' => 'حدث خطأ أثناء الحذف: '.$e->getMessage()]);
         }
     }
 }

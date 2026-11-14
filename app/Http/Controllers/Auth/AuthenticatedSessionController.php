@@ -34,11 +34,19 @@ class AuthenticatedSessionController extends Controller
             return redirect()->route('admin.dashboard');
         }
 
-        if ($user->role === 'accountant') {
-            return redirect()->route('accountant.dashboard');
+        if ($user->role === 'viewer') {
+            return redirect()->route('viewer.dashboard');
         }
 
-        return redirect('/'); // fallback
+        if ($user->role === 'accountant') {
+            if (\Illuminate\Support\Facades\Route::has('accountant.dashboard')) {
+                return redirect()->route('accountant.dashboard');
+            }
+
+            return redirect()->route('dashboard');
+        }
+
+        return redirect()->intended(route('dashboard', absolute: false));
 
     }
 

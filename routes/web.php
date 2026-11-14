@@ -35,8 +35,17 @@ Route::get('/', function () {
     if (auth()->user()->role == 'viewer') {
         return redirect()->route('viewer.dashboard');
     }
+
+    if (auth()->user()->role == 'accountant') {
+        if (\Illuminate\Support\Facades\Route::has('accountant.dashboard')) {
+            return redirect()->route('accountant.dashboard');
+        }
+
+        return redirect()->route('viewer.dashboard');
+    }
+
     abort(403);
-});
+})->name('dashboard');
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -49,9 +58,9 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
-    Route::resource('users', UserController::class);
+    Route::resource('users', UserController::class)->except(['show']);
     Route::resource('drugs', DrugController::class);
-    Route::resource('provinces', ProvinceController::class);
+    Route::resource('provinces', ProvinceController::class)->except(['show']);
     Route::resource('centers', CenterController::class);
     Route::resource('doctors', DoctorController::class);
     Route::resource('pharmacists', PharmacistController::class);
@@ -61,8 +70,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::resource('invoices', InvoiceController::class);
     Route::get('invoices/{invoice}/payments', [\App\Http\Controllers\Admin\InvoiceController::class, 'payments'])->name('invoices.payments');
     Route::post('invoices/{invoice}/payments', [\App\Http\Controllers\Admin\InvoiceController::class, 'storePayment'])->name('invoices.payments.store');
-    Route::put('invoices/{invoice}/payments/{payment}', [\App\Http\Controllers\Admin\InvoiceController::class, 'updatePayment'])->name('invoices.payments.update');
-    Route::delete('invoices/{invoice}/payments/{payment}', [\App\Http\Controllers\Admin\InvoiceController::class, 'destroyPayment'])->name('invoices.payments.destroy');
+    Route::put('invoices/{invoice}/payments/{payment}', [\App\Http\Controllers\Admin\InvoiceController::class, 'updatePayment'])->name('invoices.payments.update')->scopeBindings();
+    Route::delete('invoices/{invoice}/payments/{payment}', [\App\Http\Controllers\Admin\InvoiceController::class, 'destroyPayment'])->name('invoices.payments.destroy')->scopeBindings();
     Route::get('invoices/{invoice}/pdf', [InvoiceController::class, 'printPdf'])->name('invoices.pdf');
 
     // مرتجعات المبيعات
@@ -85,17 +94,18 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('expenses/{id}/edit', [ZoneExpenseController::class, 'edit'])->name('zones.expenses.edit');
     Route::put('expenses/{id}', [ZoneExpenseController::class, 'update'])->name('zones.expenses.update');
     Route::delete('expenses/{id}', [ZoneExpenseController::class, 'destroy'])->name('zones.expenses.destroy');
-    Route::resource('general-expenses', \App\Http\Controllers\Admin\GeneralExpenseController::class)->names('general-expenses');
+    Route::resource('general-expenses', \App\Http\Controllers\Admin\GeneralExpenseController::class)->except(['show'])->names('general-expenses');
     Route::get('/monthly-financials', [\App\Http\Controllers\Admin\ReportController::class, 'monthlyFinancials'])->name('monthly_financials');
     Route::get('/treasury', [\App\Http\Controllers\Admin\TreasuryController::class, 'index'])->name('treasury.index');
 
-    Route::resource('deals', DoctorDealController::class);
+    Route::get('deals/archived', [DoctorDealController::class, 'archived'])->name('deals.archived');
+    Route::resource('deals', DoctorDealController::class)->except(['show']);
     Route::post('deals/{deal}/pay', [DoctorDealController::class, 'markAsPaid'])->name('deals.pay');
     Route::get('deals/{deal}/invoices', [DoctorDealController::class, 'showInvoices'])->name('deals.invoices');
     Route::post('deals/{deal}/toggle-active', [DoctorDealController::class, 'toggleActive'])->name('deals.toggleActive');
     Route::post('deals/{deal}/toggle-archive', [DoctorDealController::class, 'toggleArchive'])->name('deals.toggleArchive');
-    Route::get('admin/deals/archived', [DoctorDealController::class, 'archived'])->name('deals.archived');
 
+    Route::get('stock-movements', [\App\Http\Controllers\Admin\StockMovementController::class, 'index'])->name('stock-movements.index');
     Route::resource('warehouses', WarehouseController::class);
     Route::prefix('warehouses/{warehouse}/stock')->name('warehouses.stock.')->group(function () {
 
@@ -138,81 +148,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
 
 });
 
-Route::get('/admin/fix-deals', function () {
-    $log = [];
-    $totalFixed = 0;
-
-    \Illuminate\Support\Facades\DB::beginTransaction();
-    try {
-        // جلب جميع الاتفاقات مع الفواتير والأدوية
-        $deals = \App\Models\DoctorDeal::with(['invoices.details', 'drugs'])->get();
-
-        foreach ($deals as $deal) {
-            $dealDrugIds = $deal->drugs->pluck('id')->toArray();
-            $isGeneralDeal = empty($dealDrugIds);
-
-            $dealDifferenceTotal = 0;
-
-            foreach ($deal->invoices as $invoice) {
-                $correctContribution = 0;
-
-                // إعادة الحساب بالسعر الجمهوري
-                foreach ($invoice->details as $detail) {
-                    if ($isGeneralDeal || in_array($detail->drug_id, $dealDrugIds)) {
-                        $correctContribution += ($detail->quantity * $detail->unit_price);
-                    }
-                }
-
-                $oldContribution = $invoice->pivot->contribution_amount;
-
-                // إذا كان هناك اختلاف بين الحساب القديم والجديد
-                if (round($correctContribution, 2) != round($oldContribution, 2)) {
-                    // 1. تحديث جدول الربط (Pivot)
-                    $deal->invoices()->updateExistingPivot($invoice->id, [
-                        'contribution_amount' => $correctContribution,
-                    ]);
-
-                    // حساب الفرق لتعديل إجمالي التارجت المحقق لاحقاً
-                    $difference = $correctContribution - $oldContribution;
-                    $dealDifferenceTotal += $difference;
-
-                    // تسجيل العملية
-                    $log[] = "Deal ID: {$deal->id} | Invoice #{$invoice->serial_number} | Old: {$oldContribution} | New: {$correctContribution} | Diff: {$difference}";
-                    $totalFixed++;
-                }
-            }
-
-            // 2. تحديث إجمالي التارجت المحقق في الاتفاق بناءً على مجموع الفروقات
-            if ($dealDifferenceTotal != 0) {
-                $deal->increment('achieved_amount', $dealDifferenceTotal);
-            }
-        }
-
-        \Illuminate\Support\Facades\DB::commit();
-
-        // 3. حفظ اللوج في ملف داخل مجلد storage/app/
-        $logContent = "=== سجل الفواتير التي تم إصلاحها ===\n";
-        $logContent .= "إجمالي الفواتير المعدلة: {$totalFixed}\n\n";
-        $logContent .= implode("\n", $log);
-
-        \Illuminate\Support\Facades\Storage::put('fixed_invoices.txt', $logContent);
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'تم مراجعة وتحديث الفواتير بنجاح.',
-            'fixed_count' => $totalFixed,
-            'log_file_path' => storage_path('app/fixed_invoices.txt'),
-            'details' => $log,
-        ]);
-
-    } catch (\Exception $e) {
-        \Illuminate\Support\Facades\DB::rollBack();
-
-        return response()->json(['status' => 'error', 'message' => $e->getMessage()]);
-    }
-})->middleware(['auth', 'role:admin']);
-
-Route::middleware(['auth', 'role:viewer'])->prefix('viewer')->name('viewer.')->group(function () {
+// المحاسب له صلاحية عرض فقط (نفس واجهة viewer) لحين إنشاء لوحة خاصة به
+Route::middleware(['auth', 'role:viewer,accountant'])->prefix('viewer')->name('viewer.')->group(function () {
 
     Route::get('/', [\App\Http\Controllers\Viewer\ViewerDashboardController::class, 'index'])->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
@@ -227,6 +164,7 @@ Route::middleware(['auth', 'role:viewer'])->prefix('viewer')->name('viewer.')->g
     Route::resource('representatives', \App\Http\Controllers\Viewer\ViewerRepresentativeController::class)->only(['index', 'show']);
     Route::resource('zones', \App\Http\Controllers\Viewer\ViewerZoneController::class)->only(['index', 'show']);
     Route::resource('warehouses', \App\Http\Controllers\Viewer\ViewerWarehouseController::class)->only(['index', 'show']);
+    Route::get('stock-movements', [\App\Http\Controllers\Admin\StockMovementController::class, 'index'])->name('stock-movements.index');
     Route::resource('deals', \App\Http\Controllers\Viewer\ViewerDoctorDealController::class)->only(['index']);
     Route::get('deals/{deal}/invoices', [\App\Http\Controllers\Viewer\ViewerDoctorDealController::class, 'showInvoices'])->name('deals.invoices');
     Route::get('deals/archived', [\App\Http\Controllers\Viewer\ViewerDoctorDealController::class, 'archived'])->name('deals.archived');

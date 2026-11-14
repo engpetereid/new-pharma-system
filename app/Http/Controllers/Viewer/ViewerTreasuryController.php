@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\GeneralExpense;
 use App\Models\InvoicePayment;
 use App\Models\Zone;
+use App\Services\AuditService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -75,44 +76,52 @@ class ViewerTreasuryController extends Controller
     private function exportExcel($payments, $generalExpenses, $totalIncome, $totalGeneralExpenses, $totalExpenses, $netBalance, $startDate, $endDate)
     {
         $filename = 'treasury_report_'.date('Y-m-d').'.csv';
+
+        AuditService::log(
+            action: 'export_csv',
+            module: 'Treasury',
+            entity: null,
+            description: 'تصدير تقرير الخزينة إلى ملف CSV بواسطة مستعرض'
+        );
+
         $callback = function () use ($payments, $generalExpenses, $totalIncome, $totalGeneralExpenses, $netBalance, $startDate, $endDate) {
             $file = fopen('php://output', 'w');
             fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية
 
             // الترويسة
             $period = ($startDate || $endDate) ? "الفترة: من $startDate إلى $endDate" : 'حتى الآن (كل البيانات)';
-            fputcsv($file, ['تقرير الخزينة (حركة الأموال)', $period]);
+            fputcsv($file, sanitize_csv_row(['تقرير الخزينة (حركة الأموال)', $period]));
             fputcsv($file, []);
 
             // ملخص
-            fputcsv($file, ['الملخص المالي']);
-            fputcsv($file, ['إجمالي الدخل (التحصيلات)', $totalIncome]);
-            fputcsv($file, ['إجمالي المصروفات العامة', $totalGeneralExpenses]);
-            fputcsv($file, ['صافي الخزنة (الرصيد)', $netBalance]);
+            fputcsv($file, sanitize_csv_row(['الملخص المالي']));
+            fputcsv($file, sanitize_csv_row(['إجمالي الدخل (التحصيلات)', $totalIncome]));
+            fputcsv($file, sanitize_csv_row(['إجمالي المصروفات العامة', $totalGeneralExpenses]));
+            fputcsv($file, sanitize_csv_row(['صافي الخزنة (الرصيد)', $netBalance]));
             fputcsv($file, []);
 
             // 1. الدخل
-            fputcsv($file, ['--- تفاصيل الدخل (التحصيلات) ---']);
-            fputcsv($file, ['التاريخ', 'رقم الفاتورة', 'الصيدلية', 'المبلغ']);
+            fputcsv($file, sanitize_csv_row(['--- تفاصيل الدخل (التحصيلات) ---']));
+            fputcsv($file, sanitize_csv_row(['التاريخ', 'رقم الفاتورة', 'الصيدلية', 'المبلغ']));
             foreach ($payments as $payment) {
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $payment->payment_date->format('Y-m-d'),
                     $payment->invoice->serial_number ?? $payment->invoice_id,
                     $payment->invoice->pharmacist->name ?? '-',
                     $payment->amount,
-                ]);
+                ]));
             }
             fputcsv($file, []);
 
             // 2. المصروفات العامة
-            fputcsv($file, ['--- تفاصيل المصروفات العامة ---']);
-            fputcsv($file, ['التاريخ', 'البيان', 'المبلغ']);
+            fputcsv($file, sanitize_csv_row(['--- تفاصيل المصروفات العامة ---']));
+            fputcsv($file, sanitize_csv_row(['التاريخ', 'البيان', 'المبلغ']));
             foreach ($generalExpenses as $gExpense) {
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $gExpense->expense_date->format('Y-m-d'),
                     $gExpense->description,
                     $gExpense->amount,
-                ]);
+                ]));
             }
 
             fclose($file);

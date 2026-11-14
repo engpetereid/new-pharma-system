@@ -158,12 +158,15 @@
                         class="menu-title">المناديب</span></a>
             </li>
 
-            <li class="nav-item has-sub {{ request()->routeIs('admin.drugs.*') || request()->routeIs('admin.provinces.*') || request()->routeIs('admin.centers.*') ? 'open' : '' }}">
+            <li class="nav-item has-sub {{ request()->routeIs('admin.drugs.*') || request()->routeIs('admin.stock-movements.*') || request()->routeIs('admin.provinces.*') || request()->routeIs('admin.centers.*') ? 'open' : '' }}">
                 <a href="#"><i class="la la-cogs"></i><span class="menu-title">إعدادات النظام</span></a>
                 <ul class="menu-content">
 
                     <li class="{{ request()->routeIs('admin.warehouses.index') ? 'active' : '' }}">
                         <a class="menu-item" href="{{ route('admin.warehouses.index') }}">جرد المخازن</a>
+                    </li>
+                    <li class="{{ request()->routeIs('admin.stock-movements.*') ? 'active' : '' }}">
+                        <a class="menu-item" href="{{ route('admin.stock-movements.index') }}">سجل حركات المخازن</a>
                     </li>
 
 

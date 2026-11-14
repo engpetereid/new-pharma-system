@@ -45,7 +45,7 @@
                 <div class="p-4 card-body" id="return-receipt">
                     <div class="row mb-3">
                         <div class="text-left col-md-6">
-                            <h3 class="text-primary text-bold-800">Bio vera</h3>
+                            <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}" alt="RUQAX Pharmaceuticals" style="height: 70px; max-width: 100%;">
                             <p class="text-muted mb-0">نظام إدارة التوزيع الدوائي</p>
                             <span class="badge badge-danger font-medium-1 mt-1">إيصال مرتجع </span>
                         </div>

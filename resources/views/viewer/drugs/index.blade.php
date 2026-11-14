@@ -27,7 +27,7 @@
                         <div class="col-12">
                             <div class="card">
                                 <div class="card-header">
-                                    <h4 class="card-title">جميع الأدوية المسجلة</h4>
+                                    <h4 class="card-title">جميع الأدوية — الأرصدة والأسعار</h4>
                                     <a class="heading-elements-toggle"><i class="la la-ellipsis-v font-medium-3"></i></a>
                                     <div class="heading-elements">
                                         <ul class="list-inline mb-0">
@@ -43,56 +43,7 @@
 
                                 <div class="card-content collapse show">
                                     <div class="card-body card-dashboard">
-                                        <div class="table-responsive">
-                                            <table class="table table-striped table-hover w-100">
-                                                <thead class="bg-primary white">
-                                                <tr>
-                                                    <th>#</th>
-                                                    <th>اسم الدواء</th>
-                                                    <th>السعر</th>
-                                                    <th>الخط (Line)</th>
-                                                    <th>الإجراءات</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-
-                                                @forelse($drugs as $index => $drug)
-                                                    <tr>
-                                                        <td>{{ $index + 1 }}</td>
-                                                        <td class="text-bold-600">{{ $drug->name }}</td>
-                                                        <td class="text-success font-weight-bold">{{ number_format($drug->price, 2) }} ج.م</td>
-                                                        <td>
-                                                            @if($drug->line == 1)
-                                                                <span class="badge badge-info">Line 1</span>
-                                                            @else
-                                                                <span class="badge badge-warning">Line 2</span>
-                                                            @endif
-                                                        </td>
-                                                        <td>
-                                                            <div class="btn-group" role="group">
-
-                                                                <a href="{{ route('viewer.drugs.show', $drug->id) }}"
-                                                                   class="btn btn-sm btn-outline-primary box-shadow-2 mr-1">
-                                                                    <i class="ft-eye"></i> تقرير
-                                                                </a>
-
-
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                @empty
-                                                    <tr>
-                                                        <td colspan="5" class="text-center text-muted py-3">لا يوجد أدوية مسجلة حالياً</td>
-                                                    </tr>
-                                                @endforelse
-
-                                                </tbody>
-                                            </table>
-                                        </div>
-
-                                        <div class="justify-content-center d-flex mt-2">
-                                            {{ $drugs->links() }}
-                                        </div>
+                                        @include('admin.drugs._inventory_table', ['prefix' => 'viewer'])
 
                                     </div>
                                 </div>

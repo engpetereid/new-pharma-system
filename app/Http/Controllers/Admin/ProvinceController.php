@@ -78,7 +78,11 @@ class ProvinceController extends Controller
     }
     public function destroy(Province $province)
     {
-        //
+        // الحذف يتتالى على المراكز والمناطق ومنها على الصيدليات والفواتير
+        if ($province->centers()->exists() || \App\Models\Zone::where('province_id', $province->id)->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف المحافظة لوجود مراكز أو مناطق تابعة لها.']);
+        }
+
         try {
             $province->delete();
             return redirect()->route('admin.provinces.index')->with(['success' => 'تم الحذف بنجاح']);

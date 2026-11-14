@@ -120,6 +120,13 @@ class DoctorController extends Controller
 
     public function destroy(Doctor $doctor)
     {
+        if ($doctor->deals()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الطبيب لوجود اتفاقات مالية مسجلة له.']);
+        }
+        if ($doctor->invoices()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الطبيب لارتباطه بفواتير مبيعات.']);
+        }
+
         try {
             $doctor->delete();
             return redirect()->route('admin.doctors.index')->with(['success' => 'تم الحذف بنجاح']);

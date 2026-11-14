@@ -91,7 +91,14 @@ class CenterController extends Controller
      */
     public function destroy(Center $center)
     {
-        //
+        // الحذف يتتالى على الصيدليات والأطباء ومنه على الفواتير
+        if ($center->pharmacists()->exists() || $center->doctors()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف المركز لوجود صيدليات أو أطباء تابعين له.']);
+        }
+        if ($center->zones()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف المركز لأنه مضاف لمناطق توزيع. يرجى إزالته من المناطق أولاً.']);
+        }
+
         try {
             $center->delete();
             return redirect()->route('admin.centers.index')->with(['success' => 'تم الحذف بنجاح']);

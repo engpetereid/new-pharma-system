@@ -120,7 +120,7 @@ class ViewerAuditLogController extends Controller
             $file = fopen('php://output', 'w');
             fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية
 
-            fputcsv($file, [
+            fputcsv($file, sanitize_csv_row([
                 'المعرف',
                 'التاريخ والوقت',
                 'المستخدم',
@@ -132,10 +132,10 @@ class ViewerAuditLogController extends Controller
                 'النتيجة',
                 'عنوان IP',
                 'الرابط',
-            ]);
+            ]));
 
             foreach ($logs as $log) {
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $log->id,
                     $log->created_at->format('Y-m-d H:i:s'),
                     $log->user_name ?? ($log->user->name ?? 'النظام'),
@@ -147,7 +147,7 @@ class ViewerAuditLogController extends Controller
                     $log->outcome === 'success' ? 'ناجح' : 'فاشل',
                     $log->ip_address ?? '-',
                     $log->url ?? '-',
-                ]);
+                ]));
             }
 
             fclose($file);

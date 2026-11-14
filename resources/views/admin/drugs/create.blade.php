@@ -102,6 +102,23 @@
                                                             @enderror
                                                         </div>
                                                     </div>
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label for="production_price"> سعر الإنتاج (التكلفة للوحدة) <span class="text-danger">*</span></label>
+                                                            <div class="position-relative has-icon-left">
+                                                                <input type="number" id="production_price" class="form-control"
+                                                                       placeholder="0.00" step="0.01" min="0"
+                                                                       value="{{ old('production_price') }}" name="production_price">
+                                                                <div class="form-control-position">
+                                                                    <i class="la la-industry"></i>
+                                                                </div>
+                                                            </div>
+                                                            <small class="text-muted">يُستخدم لحساب صافي الربح، ويتم تحديثه تلقائياً عند كل توريد للمخزن الرئيسي.</small>
+                                                            @error("production_price")
+                                                            <span class="text-danger font-small-3 d-block">{{ $message }}</span>
+                                                            @enderror
+                                                        </div>
+                                                    </div>
                                                 </div>
 
                                             </div>

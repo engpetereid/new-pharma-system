@@ -36,6 +36,16 @@
             overflow: visible !important;
         }
 
+        @media (max-width: 768px) {
+            .invoice-table-wrapper {
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch;
+            }
+            .invoice-table-wrapper table {
+                min-width: 650px;
+            }
+        }
+
         .search-item {
             padding: 10px 15px;
             cursor: pointer;
@@ -107,7 +117,7 @@
                             @endif
 
                             <form class="form" action="{{ route('admin.invoices.store') }}" method="POST"
-                                  @keydown.enter.prevent>
+                                  @keydown.enter.prevent @submit="submitting = true">
                                 @csrf
 
                                 <div class="row">
@@ -361,8 +371,9 @@
                                 </div>
 
                                 <div class="form-actions text-right mt-3">
-                                    <button type="submit" class="btn btn-primary btn-lg box-shadow-2 px-4">
-                                        <i class="la la-check-circle"></i> حفظ الفاتورة
+                                    <button type="submit" class="btn btn-primary btn-lg box-shadow-2 px-4" :disabled="submitting">
+                                        <span x-show="!submitting"><i class="la la-check-circle"></i> حفظ الفاتورة</span>
+                                        <span x-show="submitting" x-cloak><i class="la la-spinner spinner"></i> جاري حفظ الفاتورة...</span>
                                     </button>
                                 </div>
                             </form>
@@ -480,6 +491,7 @@
                 selectedPharmacistId: '',
                 selectedDoctorIds: [], // مصفوفة لحفظ الأطباء المختارين
                 invoiceItems: [],
+                submitting: false,
 
                 grand_total_before_discount: '0.00',
                 grand_total_discount: '0.00',

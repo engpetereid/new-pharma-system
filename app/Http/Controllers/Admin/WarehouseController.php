@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Drug;
 use App\Models\Warehouse;
 use App\Services\AuditService;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -35,13 +36,19 @@ class WarehouseController extends Controller
         $request->validate([
             'name' => 'required|string|max:255|unique:warehouses,name',
             'type' => 'required|in:main,sub',
-            'parent_id' => 'nullable|required_if:type,sub|exists:warehouses,id',
+            // المخزن الفرعي يتبع مخزناً رئيسياً فقط
+            'parent_id' => 'nullable|required_if:type,sub|exists:warehouses,id,type,main',
         ], [
             'parent_id.required_if' => 'يجب اختيار المخزن الرئيسي التابع له.',
+            'parent_id.exists' => 'المخزن الأب يجب أن يكون مخزناً رئيسياً.',
         ]);
 
         try {
-            Warehouse::create($request->all());
+            Warehouse::create([
+                'name' => $request->name,
+                'type' => $request->type,
+                'parent_id' => $request->type === 'sub' ? $request->parent_id : null,
+            ]);
 
             return redirect()->route('admin.warehouses.index')->with(['success' => 'تم إضافة المخزن بنجاح']);
         } catch (\Exception $e) {
@@ -71,11 +78,22 @@ class WarehouseController extends Controller
         $request->validate([
             'name' => 'required|string|max:255|unique:warehouses,name,'.$warehouse->id,
             'type' => 'required|in:main,sub',
-            'parent_id' => 'nullable|required_if:type,sub|exists:warehouses,id',
+            'parent_id' => 'nullable|required_if:type,sub|exists:warehouses,id,type,main|not_in:'.$warehouse->id,
+        ], [
+            'parent_id.exists' => 'المخزن الأب يجب أن يكون مخزناً رئيسياً.',
+            'parent_id.not_in' => 'لا يمكن أن يكون المخزن تابعاً لنفسه.',
         ]);
 
+        if ($request->type === 'sub' && $warehouse->children()->exists()) {
+            return redirect()->back()->withInput()->with(['error' => 'لا يمكن تحويل المخزن إلى فرعي لوجود مخازن فرعية تابعة له.']);
+        }
+
         try {
-            $warehouse->update($request->all());
+            $warehouse->update([
+                'name' => $request->name,
+                'type' => $request->type,
+                'parent_id' => $request->type === 'sub' ? $request->parent_id : null,
+            ]);
 
             return redirect()->route('admin.warehouses.index')->with(['success' => 'تم تحديث بيانات المخزن بنجاح']);
         } catch (\Exception $e) {
@@ -115,7 +133,7 @@ class WarehouseController extends Controller
                     return $drug;
                 });
         } else {
-            $drugs = \App\Models\Drug::select('id', 'name', 'line')->get()
+            $drugs = \App\Models\Drug::select('id', 'name', 'line', 'production_price')->get()
                 ->map(function ($drug) {
                     $drug->max_quantity = null;
 
@@ -132,7 +150,13 @@ class WarehouseController extends Controller
             'items' => 'required|array|min:1',
             'items.*.drug_id' => 'required|exists:drugs,id',
             'items.*.quantity' => 'required|integer|min:1',
+            // سعر الإنتاج مطلوب عند التوريد للمخزن الرئيسي (لحساب صافي الربح)
+            'items.*.production_price' => ($warehouse->type == 'sub' ? 'nullable' : 'required').'|numeric|min:0',
+        ], [
+            'items.*.production_price.required' => 'يجب إدخال سعر الإنتاج لكل صنف عند التوريد.',
         ]);
+
+        $inventory = app(InventoryService::class);
 
         try {
             DB::beginTransaction();
@@ -148,38 +172,28 @@ class WarehouseController extends Controller
 
                 $parentStockBefore = null;
                 $parentStockAfter = null;
+                $unitCost = null;
 
                 if ($warehouse->type == 'sub' && $warehouse->parent) {
-                    $parentStock = $warehouse->parent->drugs()->where('drug_id', $drugId)->first();
-
-                    if (! $parentStock || $parentStock->pivot->quantity < $quantityToAdd) {
-                        throw ValidationException::withMessages([
-                            'items' => "الكمية المطلوبة للدواء (ID: $drugId) غير متوفرة في المخزن الرئيسي.",
-                        ]);
-                    }
-
-                    $parentStockBefore = $parentStock->pivot->quantity;
-                    $parentStockAfter = $parentStockBefore - $quantityToAdd;
-
-                    $warehouse->parent->drugs()->updateExistingPivot($drugId, [
-                        'quantity' => $parentStockAfter,
+                    $parentStockBefore = $inventory->getAvailableQuantity($warehouse->parent, (int) $drugId);
+                    $parentStockAfter = $inventory->deductStock($warehouse->parent, (int) $drugId, $quantityToAdd, 'transfer_out', [
+                        'related_warehouse' => $warehouse,
                     ]);
-                }
-
-                // استعلام واحد بدلاً من exists() + find()
-                $existingStock = $warehouse->drugs()->where('drug_id', $drugId)->first();
-                $stockBefore = $existingStock ? $existingStock->pivot->quantity : 0;
-                $stockAfter = $stockBefore + $quantityToAdd;
-
-                if ($existingStock) {
-                    $warehouse->drugs()->updateExistingPivot($drugId, [
-                        'quantity' => $stockAfter,
-                    ]);
+                    $type = 'transfer_in';
                 } else {
-                    $warehouse->drugs()->attach($drugId, [
-                        'quantity' => $quantityToAdd,
-                    ]);
+                    if (isset($item['production_price']) && $item['production_price'] !== '') {
+                        $unitCost = (float) $item['production_price'];
+                        // آخر سعر إنتاج يصبح سعر التكلفة الحالي للصنف
+                        Drug::whereKey($drugId)->update(['production_price' => $unitCost]);
+                    }
+                    $type = 'supply';
                 }
+
+                $stockBefore = $inventory->getAvailableQuantity($warehouse, (int) $drugId);
+                $stockAfter = $inventory->addStock($warehouse, (int) $drugId, $quantityToAdd, $type, [
+                    'related_warehouse' => $type === 'transfer_in' ? $warehouse->parent : null,
+                    'unit_cost' => $unitCost,
+                ]);
 
                 $logItems[] = [
                     'drug_id' => $drugId,
@@ -276,30 +290,30 @@ class WarehouseController extends Controller
             $drug = Drug::find($request->drug_id);
             $drugName = $drug ? $drug->name : "دواء #{$request->drug_id}";
 
+            $inventory = app(InventoryService::class);
+            $isSubReturn = $warehouse->type == 'sub' && $warehouse->parent;
+            $notes = trim(implode(' - ', array_filter([$request->reason, $request->notes])));
+
             //  خصم الكمية من المخزن الحالي ( فرعي أو رئيسي)
-            $newQty = $currentQty - $request->quantity;
-            $warehouse->drugs()->updateExistingPivot($request->drug_id, ['quantity' => $newQty]);
+            $newQty = $inventory->deductStock($warehouse, (int) $request->drug_id, (int) $request->quantity,
+                $isSubReturn ? 'return_to_parent_out' : 'withdrawal', [
+                    'related_warehouse' => $isSubReturn ? $warehouse->parent : null,
+                    'notes' => $notes ?: null,
+                ]);
 
             $parentName = null;
             $parentQtyBefore = null;
             $parentQtyAfter = null;
 
             // إذا كان مخزن فرعي وليه مخزن رئيسي نعيد الكمية للمخزن الرئيسي
-            if ($warehouse->type == 'sub' && $warehouse->parent) {
+            if ($isSubReturn) {
                 $parentWarehouse = $warehouse->parent;
                 $parentName = $parentWarehouse->name;
-                $parentStock = $parentWarehouse->drugs()->where('drug_id', $request->drug_id)->first();
-
-                if ($parentStock) {
-                    // تحديث رصيد الرئيسي
-                    $parentQtyBefore = $parentStock->pivot->quantity;
-                    $parentQtyAfter = $parentQtyBefore + $request->quantity;
-                    $parentWarehouse->drugs()->updateExistingPivot($request->drug_id, ['quantity' => $parentQtyAfter]);
-                } else {
-                    $parentQtyBefore = 0;
-                    $parentQtyAfter = $request->quantity;
-                    $parentWarehouse->drugs()->attach($request->drug_id, ['quantity' => $request->quantity]);
-                }
+                $parentQtyBefore = $inventory->getAvailableQuantity($parentWarehouse, (int) $request->drug_id);
+                $parentQtyAfter = $inventory->addStock($parentWarehouse, (int) $request->drug_id, (int) $request->quantity, 'return_to_parent_in', [
+                    'related_warehouse' => $warehouse,
+                    'notes' => $notes ?: null,
+                ]);
             }
 
             // وصف وتفاصيل التدقيق

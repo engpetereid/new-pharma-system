@@ -11,6 +11,7 @@ use App\Models\Province;
 use App\Models\Representative;
 use App\Models\Zone;
 use App\Models\ZoneExpense;
+use App\Services\AuditService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -292,27 +293,34 @@ class ViewerReportController extends Controller
             $monthSuffix = $selectedMonth === 'all' ? 'All_Months' : $selectedMonth;
             $filename = "financials_{$selectedYear}_{$monthSuffix}.csv";
 
+            AuditService::log(
+                action: 'export_csv',
+                module: 'Report',
+                entity: null,
+                description: "تصدير التقرير المالي للفترة ({$selectedYear}-{$monthSuffix}) إلى ملف CSV بواسطة مستعرض"
+            );
+
             $callback = function () use ($payments, $zoneExpenses, $months, $selectedMonth, $selectedYear, $totalIncome, $totalExpenses, $netProfit) {
                 $file = fopen('php://output', 'w');
                 fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية
 
                 $monthName = $selectedMonth === 'all' ? 'كل الشهور' : $months[(int) $selectedMonth];
-                fputcsv($file, ['التقرير المالي للفترة:', $monthName.' '.$selectedYear]);
-                fputcsv($file, ['إجمالي الدخل', $totalIncome]);
-                fputcsv($file, ['إجمالي المصروفات', $totalExpenses]);
-                fputcsv($file, ['صافي التدفق النقدي', $netProfit]);
+                fputcsv($file, sanitize_csv_row(['التقرير المالي للفترة:', $monthName.' '.$selectedYear]));
+                fputcsv($file, sanitize_csv_row(['إجمالي الدخل', $totalIncome]));
+                fputcsv($file, sanitize_csv_row(['إجمالي المصروفات', $totalExpenses]));
+                fputcsv($file, sanitize_csv_row(['صافي التدفق النقدي', $netProfit]));
                 fputcsv($file, []);
 
-                fputcsv($file, ['--- تفاصيل التحصيلات ---']);
-                fputcsv($file, ['التاريخ', 'رقم الفاتورة/البيان', 'العميل/المنطقة', 'المبلغ']);
+                fputcsv($file, sanitize_csv_row(['--- تفاصيل التحصيلات ---']));
+                fputcsv($file, sanitize_csv_row(['التاريخ', 'رقم الفاتورة/البيان', 'العميل/المنطقة', 'المبلغ']));
                 foreach ($payments as $payment) {
-                    fputcsv($file, [$payment->payment_date->format('Y-m-d'), $payment->invoice->serial_number ?? $payment->invoice_id, $payment->invoice->pharmacist->name ?? '-', $payment->amount]);
+                    fputcsv($file, sanitize_csv_row([$payment->payment_date->format('Y-m-d'), $payment->invoice->serial_number ?? $payment->invoice_id, $payment->invoice->pharmacist->name ?? '-', $payment->amount]));
                 }
 
                 fputcsv($file, []);
-                fputcsv($file, ['--- تفاصيل المصروفات ---']);
+                fputcsv($file, sanitize_csv_row(['--- تفاصيل المصروفات ---']));
                 foreach ($zoneExpenses as $expense) {
-                    fputcsv($file, [$expense->expense_date, $expense->zone->name ?? '-', $expense->description, '-'.$expense->amount]);
+                    fputcsv($file, sanitize_csv_row([$expense->expense_date, $expense->zone->name ?? '-', $expense->description, '-'.$expense->amount]));
                 }
                 fclose($file);
             };

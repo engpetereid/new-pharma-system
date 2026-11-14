@@ -4,12 +4,8 @@ namespace App\Http\Controllers\Viewer;
 
 use App\Http\Controllers\Controller;
 use App\Models\Zone;
-use App\Models\Province;
-use App\Models\Center;
-use App\Models\Representative;
-use App\Models\Warehouse;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ViewerZoneController extends Controller
 {
@@ -29,41 +25,48 @@ class ViewerZoneController extends Controller
 
         // التحقق من طلب التصدير
         if ($request->has('export') && $request->export == 'excel') {
-            $filename = "zone_expenses_" . $zone->id . "_" . date('Y-m-d') . ".csv";
+            $filename = 'zone_expenses_'.$zone->id.'_'.date('Y-m-d').'.csv';
+
+            AuditService::log(
+                action: 'export_csv',
+                module: 'Zone',
+                entity: $zone,
+                description: "تصدير تقرير مصروفات المنطقة ({$zone->name}) إلى ملف CSV بواسطة مستعرض"
+            );
 
             $callback = function () use ($zone) {
                 $file = fopen('php://output', 'w');
                 // دعم اللغة العربية
-                fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-                fputcsv($file, ['تقرير مصروفات المنطقة']);
-                fputcsv($file, ['المنطقة:', $zone->name, 'الخط:', 'Line ' . $zone->line]);
+                fputcsv($file, sanitize_csv_row(['تقرير مصروفات المنطقة']));
+                fputcsv($file, sanitize_csv_row(['المنطقة:', $zone->name, 'الخط:', 'Line '.$zone->line]));
                 fputcsv($file, []);
 
                 // ترويسة الجدول
-                fputcsv($file, ['التاريخ', 'بيان المصروف (في إيه)', 'المبلغ', 'وقت الإضافة']);
+                fputcsv($file, sanitize_csv_row(['التاريخ', 'بيان المصروف (في إيه)', 'المبلغ', 'وقت الإضافة']));
 
                 foreach ($zone->expenses as $expense) {
-                    fputcsv($file, [
+                    fputcsv($file, sanitize_csv_row([
                         $expense->expense_date,
                         $expense->description,
                         $expense->amount,
-                        $expense->created_at->format('Y-m-d H:i')
-                    ]);
+                        $expense->created_at->format('Y-m-d H:i'),
+                    ]));
                 }
 
                 fputcsv($file, []);
-                fputcsv($file, ['', 'الإجمالي:', $zone->expenses->sum('amount')]);
+                fputcsv($file, sanitize_csv_row(['', 'الإجمالي:', $zone->expenses->sum('amount')]));
 
                 fclose($file);
             };
 
             return response()->stream($callback, 200, [
-                "Content-Type" => "text/csv",
-                "Content-Disposition" => "attachment; filename=$filename",
-                "Pragma" => "no-cache",
-                "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-                "Expires" => "0"
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => "attachment; filename=$filename",
+                'Pragma' => 'no-cache',
+                'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+                'Expires' => '0',
             ]);
         }
 

@@ -139,11 +139,14 @@
                 <a href="{{ route('viewer.representatives.index') }}"><i class="la la-briefcase"></i><span class="menu-title">المناديب</span></a>
             </li>
 
-            <li class="nav-item has-sub {{ request()->routeIs('viewer.drugs.*') || request()->routeIs('viewer.provinces.*') || request()->routeIs('viewer.centers.*') || request()->routeIs('viewer.warehouses.*') || request()->routeIs('viewer.audit-logs.*') ? 'open' : '' }}">
+            <li class="nav-item has-sub {{ request()->routeIs('viewer.drugs.*') || request()->routeIs('viewer.stock-movements.*') || request()->routeIs('viewer.provinces.*') || request()->routeIs('viewer.centers.*') || request()->routeIs('viewer.warehouses.*') || request()->routeIs('viewer.audit-logs.*') ? 'open' : '' }}">
                 <a href="#"><i class="la la-cogs"></i><span class="menu-title">إعدادات النظام</span></a>
                 <ul class="menu-content">
                     <li class="{{ request()->routeIs('viewer.warehouses.*') ? 'active' : '' }}">
                         <a class="menu-item" href="{{ route('viewer.warehouses.index') }}">جرد المخازن</a>
+                    </li>
+                    <li class="{{ request()->routeIs('viewer.stock-movements.*') ? 'active' : '' }}">
+                        <a class="menu-item" href="{{ route('viewer.stock-movements.index') }}">سجل حركات المخازن</a>
                     </li>
                     <li class="{{ request()->routeIs('viewer.drugs.*') ? 'active' : '' }}">
                         <a class="menu-item" href="{{ route('viewer.drugs.index') }}">الأدوية</a>

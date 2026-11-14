@@ -96,7 +96,7 @@
                     </div>
 
                     <div class="col-4 text-end">
-                        <img src="{{ asset('assets/admin/images/slogan.jpg') }}"
+                        <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}"
                             alt="Logo"
                             style="height: 80px;"  >
                     </div>

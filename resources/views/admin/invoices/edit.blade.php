@@ -41,6 +41,16 @@
             overflow: visible !important;
         }
 
+        @media (max-width: 768px) {
+            .invoice-table-wrapper {
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch;
+            }
+            .invoice-table-wrapper table {
+                min-width: 650px;
+            }
+        }
+
         .search-item {
             padding: 10px 15px;
             cursor: pointer;
@@ -126,7 +136,7 @@
                             @endif
 
                             <form class="form" action="{{ route('admin.invoices.update', $invoice->id) }}" method="POST"
-                                  @keydown.enter.prevent>
+                                  @keydown.enter.prevent @submit="submitting = true">
                                 @csrf
                                 @method('PUT')
 
@@ -384,8 +394,9 @@
                                     <button type="button" class="mr-1 btn btn-secondary" onclick="history.back()">
                                         <i class="ft-x"></i> إلغاء
                                     </button>
-                                    <button type="submit" class="px-4 btn btn-warning btn-lg box-shadow-2">
-                                        <i class="la la-check-circle"></i> حفظ التعديلات
+                                    <button type="submit" class="px-4 btn btn-warning btn-lg box-shadow-2" :disabled="submitting">
+                                        <span x-show="!submitting"><i class="la la-check-circle"></i> حفظ التعديلات</span>
+                                        <span x-show="submitting" x-cloak><i class="la la-spinner spinner"></i> جاري حفظ التعديلات...</span>
                                     </button>
                                 </div>
                             </form>
@@ -515,6 +526,7 @@
                 selectedDoctorIds: [], // مصفوفة لحفظ الأطباء المختارين
 
                 invoiceItems: [],
+                submitting: false,
 
                 grand_total_before_discount: '0.00',
                 grand_total_discount: '0.00',

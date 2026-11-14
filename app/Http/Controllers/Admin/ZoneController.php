@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Zone;
-use App\Models\Province;
 use App\Models\Center;
+use App\Models\Province;
 use App\Models\Representative;
 use App\Models\Warehouse;
+use App\Models\Zone;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -52,6 +53,8 @@ class ZoneController extends Controller
             'warehouse_id.required' => 'يجب تحديد المخزن المسؤول عن صرف بضاعة هذه المنطقة.',
         ]);
 
+        $this->ensureCentersNotAssigned($request->centers, [1, 2]);
+
         try {
             DB::beginTransaction();
 
@@ -76,9 +79,11 @@ class ZoneController extends Controller
             $zoneLine2->centers()->sync($request->centers);
 
             DB::commit();
+
             return redirect()->route('admin.zones.index')->with(['success' => 'تم إضافة المنطقتين (Line 1 و Line 2) بنجاح']);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return redirect()->back()->with(['error' => $e->getMessage()])->withInput();
         }
     }
@@ -109,6 +114,8 @@ class ZoneController extends Controller
             'centers.*' => 'exists:centers,id',
         ]);
 
+        $this->ensureCentersNotAssigned($request->centers, [(int) $request->line], $zone->id);
+
         try {
             DB::beginTransaction();
             $zone->update([
@@ -121,17 +128,31 @@ class ZoneController extends Controller
             ]);
             $zone->centers()->sync($request->centers);
             DB::commit();
+
             return redirect()->route('admin.zones.index')->with(['success' => 'تم تحديث المنطقة بنجاح']);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return redirect()->back()->with(['error' => $e->getMessage()])->withInput();
         }
     }
 
     public function destroy(Zone $zone)
     {
+        // المنطقة تحدد مخزن صرف ومرتجع فواتير مراكزها، وحذفها يحذف مصروفاتها
+        if ($zone->expenses()->exists()) {
+            return redirect()->back()->with(['error' => 'لا يمكن حذف المنطقة لوجود مصروفات مسجلة عليها.']);
+        }
+        $hasInvoices = \App\Models\Invoice::where('line', $zone->line)
+            ->whereHas('pharmacist', fn ($q) => $q->whereIn('center_id', $zone->centers()->pluck('centers.id')))
+            ->exists();
+        if ($hasInvoices) {
+            return redirect()->back()->with(['error' => 'لا يمكن حذف المنطقة لوجود فواتير على مراكزها (مطلوبة لتحديد مخزن المرتجعات).']);
+        }
+
         try {
             $zone->delete();
+
             return redirect()->route('admin.zones.index')->with(['success' => 'تم الحذف بنجاح']);
         } catch (\Exception $e) {
             return redirect()->back()->with(['error' => $e->getMessage()]);
@@ -144,44 +165,73 @@ class ZoneController extends Controller
 
         // التحقق من طلب التصدير
         if ($request->has('export') && $request->export == 'excel') {
-            $filename = "zone_expenses_" . $zone->id . "_" . date('Y-m-d') . ".csv";
+            $filename = 'zone_expenses_'.$zone->id.'_'.date('Y-m-d').'.csv';
+
+            AuditService::log(
+                action: 'export_csv',
+                module: 'Zone',
+                entity: $zone,
+                description: "تصدير تقرير مصروفات المنطقة ({$zone->name}) إلى ملف CSV"
+            );
 
             $callback = function () use ($zone) {
                 $file = fopen('php://output', 'w');
                 // دعم اللغة العربية
-                fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-                fputcsv($file, ['تقرير مصروفات المنطقة']);
-                fputcsv($file, ['المنطقة:', $zone->name, 'الخط:', 'Line ' . $zone->line]);
+                fputcsv($file, sanitize_csv_row(['تقرير مصروفات المنطقة']));
+                fputcsv($file, sanitize_csv_row(['المنطقة:', $zone->name, 'الخط:', 'Line '.$zone->line]));
                 fputcsv($file, []);
 
                 // ترويسة الجدول
-                fputcsv($file, ['التاريخ', 'بيان المصروف (في إيه)', 'المبلغ', 'وقت الإضافة']);
+                fputcsv($file, sanitize_csv_row(['التاريخ', 'بيان المصروف (في إيه)', 'المبلغ', 'وقت الإضافة']));
 
                 foreach ($zone->expenses as $expense) {
-                    fputcsv($file, [
+                    fputcsv($file, sanitize_csv_row([
                         $expense->expense_date,
                         $expense->description,
                         $expense->amount,
-                        $expense->created_at->format('Y-m-d H:i')
-                    ]);
+                        $expense->created_at->format('Y-m-d H:i'),
+                    ]));
                 }
 
                 fputcsv($file, []);
-                fputcsv($file, ['', 'الإجمالي:', $zone->expenses->sum('amount')]);
+                fputcsv($file, sanitize_csv_row(['', 'الإجمالي:', $zone->expenses->sum('amount')]));
 
                 fclose($file);
             };
 
             return response()->stream($callback, 200, [
-                "Content-Type" => "text/csv",
-                "Content-Disposition" => "attachment; filename=$filename",
-                "Pragma" => "no-cache",
-                "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-                "Expires" => "0"
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => "attachment; filename=$filename",
+                'Pragma' => 'no-cache',
+                'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+                'Expires' => '0',
             ]);
         }
 
         return view('admin.zones.show', compact('zone'));
+    }
+
+    /**
+     * كل مركز يجب أن يتبع منطقة واحدة فقط لكل خط، وإلا يصبح تحديد المخزن والمناديب للفاتورة عشوائياً.
+     */
+    private function ensureCentersNotAssigned(array $centerIds, array $lines, ?int $ignoreZoneId = null): void
+    {
+        $conflicts = Zone::whereIn('line', $lines)
+            ->when($ignoreZoneId, fn ($q) => $q->where('id', '!=', $ignoreZoneId))
+            ->whereHas('centers', fn ($q) => $q->whereIn('centers.id', $centerIds))
+            ->with(['centers' => fn ($q) => $q->whereIn('centers.id', $centerIds)])
+            ->get();
+
+        if ($conflicts->isEmpty()) {
+            return;
+        }
+
+        $details = $conflicts->map(fn ($z) => $z->centers->pluck('name')->join('، ')." (منطقة {$z->name} - Line {$z->line})")->join(' | ');
+
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'centers' => "المراكز التالية مضافة بالفعل لمنطقة أخرى على نفس الخط: {$details}",
+        ]);
     }
 }

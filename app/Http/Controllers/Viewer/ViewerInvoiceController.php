@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Pharmacist;
 use App\Models\Representative;
 use App\Models\Zone;
+use App\Services\AuditService;
 use ArPHP\I18N\Arabic;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -52,6 +53,13 @@ class ViewerInvoiceController extends Controller
 
         $invoices = $query->latest('invoice_date')->get();
 
+        AuditService::log(
+            action: 'export_csv',
+            module: 'Invoice',
+            entity: null,
+            description: 'تصدير بيانات الفواتير إلى ملف CSV بواسطة مستعرض ('.($request->export_type == 'details' ? 'تفصيلي' : 'ملخص').')'
+        );
+
         if ($request->export_type == 'details') {
             $filename = 'invoices_details_report_'.date('Y-m-d').'.csv';
 
@@ -81,7 +89,7 @@ class ViewerInvoiceController extends Controller
 
                 array_push($headers, 'الإجمالي (الصافي)', 'المدفوع', 'المتبقي', 'حالة الفاتورة');
 
-                fputcsv($file, $headers);
+                fputcsv($file, sanitize_csv_row($headers));
 
                 // 2. إدخال بيانات الفواتير
                 foreach ($invoices as $invoice) {
@@ -125,7 +133,7 @@ class ViewerInvoiceController extends Controller
                         $statusText
                     );
 
-                    fputcsv($file, $row);
+                    fputcsv($file, sanitize_csv_row($row));
                 }
                 fclose($file);
             };
@@ -137,10 +145,10 @@ class ViewerInvoiceController extends Controller
                 $file = fopen('php://output', 'w');
                 fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     'رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المركز', 'المنطقة',
                     'الأطباء', 'المندوب', 'الإجمالي (جمهور)', 'الصافي', 'المدفوع', 'المتبقي', 'الحالة',
-                ]);
+                ]));
 
                 foreach ($invoices as $invoice) {
                     $statusText = match ($invoice->status) {
@@ -153,7 +161,7 @@ class ViewerInvoiceController extends Controller
                     $doctorsNames = $invoice->doctors->pluck('name')->implode(' - ') ?: '-';
                     $zoneName = $invoice->pharmacist?->center?->zones?->first()?->name ?? '-';
 
-                    fputcsv($file, [
+                    fputcsv($file, sanitize_csv_row([
                         $invoice->serial_number ?? $invoice->id,
                         $invoice->invoice_date,
                         $invoice->pharmacist->name ?? '-',
@@ -166,7 +174,7 @@ class ViewerInvoiceController extends Controller
                         $invoice->paid_amount,
                         $invoice->remaining_amount,
                         $statusText,
-                    ]);
+                    ]));
                 }
                 fclose($file);
             };

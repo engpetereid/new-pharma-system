@@ -13,6 +13,7 @@ use App\Models\Zone;
 use App\Models\ZoneExpense;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
 {
@@ -160,10 +161,18 @@ class ReportController extends Controller
 
         $totalSales = $doctor->invoices()->sum('final_total');
 
-        // الاعتماد على جدول الاتفاقات (Deals) لحساب عمولات الطبيب
-        $totalCommissionEarned = $doctor->deals->sum('commission_amount');
-        $paidCommission = $doctor->deals->sum('paid_amount');
-        $dueCommission = max(0, $totalCommissionEarned - $paidCommission);
+        $commissionService = app(\App\Services\DoctorCommissionService::class);
+        $totalCommissionEarned = 0;
+        $paidCommission = 0;
+
+        foreach ($doctor->deals as $deal) {
+            $totalCommissionEarned += $commissionService->getDealCommission($deal);
+            $paidCommission += (float) $deal->paid_amount;
+        }
+
+        $totalCommissionEarned = round($totalCommissionEarned, 2);
+        $paidCommission = round($paidCommission, 2);
+        $dueCommission = max(0, round($totalCommissionEarned - $paidCommission, 2));
 
         return view('admin.reports.doctors.show', compact(
             'doctor', 'invoices', 'totalSales', 'totalCommissionEarned', 'paidCommission', 'dueCommission'
@@ -174,18 +183,27 @@ class ReportController extends Controller
     {
         $doctor = Doctor::findOrFail($id);
 
-        // تسوية جميع الاتفاقات غير المدفوعة للطبيب
-        $deals = $doctor->deals()->where('is_paid', false)->get();
-        $updatedCount = 0;
+        $commissionService = app(\App\Services\DoctorCommissionService::class);
 
-        foreach ($deals as $deal) {
-            $deal->update([
-                'is_paid' => true,
-                'status' => 1,
-                'paid_amount' => $deal->commission_amount,
-            ]);
-            $updatedCount++;
-        }
+        // تسوية الاتفاقات المستحقة فقط: غير مؤرشفة، وحققت التارجت (أو نسبة مفتوحة لها محقق)
+        $deals = $doctor->deals()
+            ->where('is_paid', false)
+            ->where('is_archived', false)
+            ->get()
+            ->filter(function ($deal) use ($commissionService) {
+                $targetReached = (float) $deal->target_amount <= 0
+                    || (float) $deal->achieved_amount >= (float) $deal->target_amount;
+
+                return $targetReached && $commissionService->getDealRemaining($deal) > 0;
+            });
+
+        $updatedCount = DB::transaction(function () use ($deals, $commissionService) {
+            foreach ($deals as $deal) {
+                $commissionService->settleDeal($deal);
+            }
+
+            return $deals->count();
+        });
 
         if ($updatedCount > 0) {
             return redirect()->back()->with(['success' => "تم تسوية المستحقات بنجاح لـ $updatedCount اتفاق مالي للطبيب."]);
@@ -292,27 +310,34 @@ class ReportController extends Controller
             $monthSuffix = $selectedMonth === 'all' ? 'All_Months' : $selectedMonth;
             $filename = "financials_{$selectedYear}_{$monthSuffix}.csv";
 
+            \App\Services\AuditService::log(
+                action: 'exported',
+                module: 'FinancialReport',
+                description: "تصدير التقرير المالي الشهري ({$monthSuffix}-{$selectedYear}) إلى ملف CSV",
+                newValues: ['period' => "{$selectedYear}-{$monthSuffix}"]
+            );
+
             $callback = function () use ($payments, $zoneExpenses, $months, $selectedMonth, $selectedYear, $totalIncome, $totalExpenses, $netProfit) {
                 $file = fopen('php://output', 'w');
                 fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية
 
                 $monthName = $selectedMonth === 'all' ? 'كل الشهور' : $months[(int) $selectedMonth];
-                fputcsv($file, ['التقرير المالي للفترة:', $monthName.' '.$selectedYear]);
-                fputcsv($file, ['إجمالي الدخل', $totalIncome]);
-                fputcsv($file, ['إجمالي المصروفات', $totalExpenses]);
-                fputcsv($file, ['صافي التدفق النقدي', $netProfit]);
+                fputcsv($file, sanitize_csv_row(['التقرير المالي للفترة:', $monthName.' '.$selectedYear]));
+                fputcsv($file, sanitize_csv_row(['إجمالي الدخل', $totalIncome]));
+                fputcsv($file, sanitize_csv_row(['إجمالي المصروفات', $totalExpenses]));
+                fputcsv($file, sanitize_csv_row(['صافي التدفق النقدي', $netProfit]));
                 fputcsv($file, []);
 
-                fputcsv($file, ['--- تفاصيل التحصيلات ---']);
-                fputcsv($file, ['التاريخ', 'رقم الفاتورة/البيان', 'العميل/المنطقة', 'المبلغ']);
+                fputcsv($file, sanitize_csv_row(['--- تفاصيل التحصيلات ---']));
+                fputcsv($file, sanitize_csv_row(['التاريخ', 'رقم الفاتورة/البيان', 'العميل/المنطقة', 'المبلغ']));
                 foreach ($payments as $payment) {
-                    fputcsv($file, [$payment->payment_date->format('Y-m-d'), $payment->invoice->serial_number ?? $payment->invoice_id, $payment->invoice->pharmacist->name ?? '-', $payment->amount]);
+                    fputcsv($file, sanitize_csv_row([$payment->payment_date->format('Y-m-d'), $payment->invoice->serial_number ?? $payment->invoice_id, $payment->invoice->pharmacist->name ?? '-', $payment->amount]));
                 }
 
                 fputcsv($file, []);
-                fputcsv($file, ['--- تفاصيل المصروفات ---']);
+                fputcsv($file, sanitize_csv_row(['--- تفاصيل المصروفات ---']));
                 foreach ($zoneExpenses as $expense) {
-                    fputcsv($file, [$expense->expense_date, $expense->zone->name ?? '-', $expense->description, '-'.$expense->amount]);
+                    fputcsv($file, sanitize_csv_row([$expense->expense_date, $expense->zone->name ?? '-', $expense->description, '-'.$expense->amount]));
                 }
                 fclose($file);
             };

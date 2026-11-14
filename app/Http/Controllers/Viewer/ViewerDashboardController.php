@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Viewer;
 
 use App\Http\Controllers\Controller;
+use App\Models\Doctor;
 use App\Models\Invoice;
 use App\Models\Pharmacist;
-use App\Models\Doctor;
 use App\Models\Representative;
 use App\Models\Zone;
 use App\Models\ZoneExpense;
@@ -18,8 +18,8 @@ class ViewerDashboardController extends Controller
     public function index(Request $request)
     {
         // 1. تحديد التاريخ المختار (الافتراضي هو الشهر والسنة الحالية)
-        $selectedMonth = $request->input('month', Carbon::now()->month);
-        $selectedYear = $request->input('year', Carbon::now()->year);
+        $selectedMonth = min(12, max(1, (int) $request->input('month', Carbon::now()->month)));
+        $selectedYear = min(2100, max(2000, (int) $request->input('year', Carbon::now()->year)));
 
         // تحديد بداية ونهاية الشهر المختار للفلترة
         $startOfSelectedMonth = Carbon::createFromDate($selectedYear, $selectedMonth, 1)->startOfMonth();
@@ -43,14 +43,13 @@ class ViewerDashboardController extends Controller
             ->join('pharmacists', 'pharmacists.center_id', '=', 'center_zone.center_id')
             ->join('invoices', function ($join) use ($startOfSelectedMonth, $endOfSelectedMonth) {
                 $join->on('invoices.pharmacist_id', '=', 'pharmacists.id')
-                     ->on('invoices.line', '=', 'zones.line')
-                     ->whereBetween('invoices.invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
+                    ->on('invoices.line', '=', 'zones.line')
+                    ->whereBetween('invoices.invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
             })
-            ->join('invoice_details', 'invoice_details.invoice_id', '=', 'invoices.id')
             ->groupBy('zones.id')
             ->select(
                 'zones.id as zone_id',
-                DB::raw('SUM(invoice_details.unit_price * invoice_details.quantity) as public_price_total'),
+                DB::raw('SUM(invoices.total_amount) as public_price_total'),
                 DB::raw('SUM(invoices.total_discount) as total_discount')
             )
             ->get()
@@ -67,10 +66,10 @@ class ViewerDashboardController extends Controller
         $zones = Zone::select('id', 'name', 'line')->get();
 
         $riskyZones = $zones->map(function ($zone) use ($invoiceTotals, $expenseTotals) {
-            $totals          = $invoiceTotals->get($zone->id);
-            $publicPriceTotal= $totals ? (float) $totals->public_price_total : 0;
-            $totalDiscount   = $totals ? (float) $totals->total_discount     : 0;
-            $totalExpenses   = $expenseTotals->has($zone->id)
+            $totals = $invoiceTotals->get($zone->id);
+            $publicPriceTotal = $totals ? (float) $totals->public_price_total : 0;
+            $totalDiscount = $totals ? (float) $totals->total_discount : 0;
+            $totalExpenses = $expenseTotals->has($zone->id)
                 ? (float) $expenseTotals->get($zone->id)->total_expenses
                 : 0;
 
@@ -80,28 +79,28 @@ class ViewerDashboardController extends Controller
             }
 
             return [
-                'id'          => $zone->id,
-                'name'        => $zone->name,
-                'line'        => $zone->line,
-                'ratio'       => round($riskRatio, 1),
+                'id' => $zone->id,
+                'name' => $zone->name,
+                'line' => $zone->line,
+                'ratio' => round($riskRatio, 1),
                 'risk_amount' => $totalDiscount + $totalExpenses,
             ];
-        })->filter(fn($item) => $item['ratio'] > 40)->values();
+        })->filter(fn ($item) => $item['ratio'] > 40)->values();
 
         //  بناءً على الشهر المختار
         $topPharmacists = Pharmacist::with('center')
-            ->withSum(['invoices as total_sales' => function($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
+            ->withSum(['invoices as total_sales' => function ($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
                 $q->whereBetween('invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
             }], 'final_total')
             ->orderByDesc('total_sales')->take(5)->get();
 
         $topDoctors = Doctor::with('center')
-            ->withSum(['invoices as total_sales' => function($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
+            ->withSum(['invoices as total_sales' => function ($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
                 $q->whereBetween('invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
             }], 'final_total')
             ->orderByDesc('total_sales')->take(5)->get();
 
-        $topRepresentatives = Representative::withSum(['invoices as total_sales' => function($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
+        $topRepresentatives = Representative::withSum(['invoices as total_sales' => function ($q) use ($startOfSelectedMonth, $endOfSelectedMonth) {
             $q->whereBetween('invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
         }], 'final_total')
             ->orderByDesc('total_sales')->take(5)->get();
@@ -120,12 +119,12 @@ class ViewerDashboardController extends Controller
             ->whereDate('invoice_date', '<', Carbon::now()->subMonths(3))
             ->orderBy('invoice_date')->take(10)->get();
 
-        $highDiscountPharmacists = Pharmacist::whereHas('invoices', function($q) {
+        $highDiscountPharmacists = Pharmacist::whereHas('invoices', function ($q) {
             // حساب نسبة الخصم للفاتورة الكلية: (إجمالي الخصم / إجمالي الفاتورة) * 100 >= 51%
             $q->whereRaw('total_amount > 0 AND (total_discount / total_amount) * 100 >= 51');
         })
             ->with('center')
-            ->withCount(['invoices as high_discount_invoices_count' => function($q) {
+            ->withCount(['invoices as high_discount_invoices_count' => function ($q) {
                 $q->whereRaw('total_amount > 0 AND (total_discount / total_amount) * 100 >= 51');
             }])
             ->orderByDesc('high_discount_invoices_count')->take(10)->get();
@@ -138,14 +137,15 @@ class ViewerDashboardController extends Controller
         ));
     }
 
-
     public function lineDashboard(Request $request, $lineId)
     {
-        if (!in_array($lineId, [1, 2])) abort(404);
+        if (! in_array($lineId, [1, 2])) {
+            abort(404);
+        }
 
         //  تحديد التاريخ المختار
-        $selectedMonth = $request->input('month', Carbon::now()->month);
-        $selectedYear = $request->input('year', Carbon::now()->year);
+        $selectedMonth = min(12, max(1, (int) $request->input('month', Carbon::now()->month)));
+        $selectedYear = min(2100, max(2000, (int) $request->input('year', Carbon::now()->year)));
 
         $startOfSelectedMonth = Carbon::createFromDate($selectedYear, $selectedMonth, 1)->startOfMonth();
         $endOfSelectedMonth = Carbon::createFromDate($selectedYear, $selectedMonth, 1)->endOfMonth();
@@ -168,13 +168,13 @@ class ViewerDashboardController extends Controller
 
         //  القوائم مفلترة بالتاريخ
         $topPharmacists = Pharmacist::with('center')
-            ->withSum(['invoices as total_sales' => function($query) use ($lineId, $startOfSelectedMonth, $endOfSelectedMonth) {
+            ->withSum(['invoices as total_sales' => function ($query) use ($lineId, $startOfSelectedMonth, $endOfSelectedMonth) {
                 $query->where('line', $lineId)->whereBetween('invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
             }], 'final_total')
             ->orderByDesc('total_sales')->take(5)->get();
 
         $topDoctors = Doctor::with('center')
-            ->withSum(['invoices as total_sales' => function($query) use ($lineId, $startOfSelectedMonth, $endOfSelectedMonth) {
+            ->withSum(['invoices as total_sales' => function ($query) use ($lineId, $startOfSelectedMonth, $endOfSelectedMonth) {
                 $query->where('line', $lineId)->whereBetween('invoice_date', [$startOfSelectedMonth, $endOfSelectedMonth]);
             }], 'final_total')
             ->orderByDesc('total_sales')->take(5)->get();
@@ -188,8 +188,8 @@ class ViewerDashboardController extends Controller
         // 1. إجمالي الجمهوري للخط
         $publicPriceTotal = $lineInvoices->reduce(function ($carry, $invoice) {
             return $carry + $invoice->details->reduce(function ($subCarry, $detail) {
-                    return $subCarry + ($detail->unit_price * $detail->quantity);
-                }, 0);
+                return $subCarry + ($detail->unit_price * $detail->quantity);
+            }, 0);
         }, 0);
 
         // 2. إجمالي الخصومات للخط

@@ -189,6 +189,7 @@ class AuditLogTest extends TestCase
                 [
                     'drug_id' => $drug->id,
                     'quantity' => 100,
+                    'production_price' => 20,
                 ],
             ],
         ]);

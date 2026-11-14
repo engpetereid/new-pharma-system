@@ -139,7 +139,7 @@
                 </div>
 
                 <div class="print-logo">
-                    <img src="{{ asset('assets/admin/images/slogan.jpg') }}" alt="Logo">
+                    <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}" alt="Logo">
                 </div>
             </div>
 

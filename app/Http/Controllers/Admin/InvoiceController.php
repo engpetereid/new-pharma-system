@@ -4,23 +4,25 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Center;
+use App\Models\Doctor;
+use App\Models\DoctorDeal;
+use App\Models\Drug;
 use App\Models\Invoice;
 use App\Models\InvoiceDetail;
 use App\Models\InvoicePayment;
 use App\Models\Pharmacist;
-use App\Models\Doctor;
-use App\Models\Drug;
 use App\Models\Province;
 use App\Models\Representative;
-use App\Models\Zone;
-use App\Models\DoctorDeal;
 use App\Models\Warehouse;
+use App\Models\Zone;
+use App\Services\AuditService;
+use App\Services\InventoryService;
+use ArPHP\I18N\Arabic;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Carbon\Carbon;
-use Barryvdh\DomPDF\Facade\Pdf;
-use ArPHP\I18N\Arabic;
 
 class InvoiceController extends Controller
 {
@@ -47,7 +49,7 @@ class InvoiceController extends Controller
         $representatives = Representative::select('id', 'name')->get();
         $pharmacists = Pharmacist::select('id', 'name')->get();
 
-        return view('admin.invoices.index', compact('invoices', 'centers', 'stats', 'zones','doctors', 'representatives', 'pharmacists'));
+        return view('admin.invoices.index', compact('invoices', 'centers', 'stats', 'zones', 'doctors', 'representatives', 'pharmacists'));
     }
 
     public function export(Request $request)
@@ -61,8 +63,15 @@ class InvoiceController extends Controller
 
         $invoices = $query->latest('invoice_date')->get();
 
+        AuditService::log(
+            action: 'export_csv',
+            module: 'Invoice',
+            entity: null,
+            description: 'تصدير بيانات الفواتير إلى ملف CSV ('.($request->export_type == 'details' ? 'تفصيلي' : 'ملخص').')'
+        );
+
         if ($request->export_type == 'details') {
-            $filename = "invoices_details_report_" . date('Y-m-d') . ".csv";
+            $filename = 'invoices_details_report_'.date('Y-m-d').'.csv';
 
             // استخراج جميع الأدوية الفريدة من الفواتير لعمل أعمدة ديناميكية
             $uniqueDrugs = [];
@@ -78,19 +87,19 @@ class InvoiceController extends Controller
 
             $callback = function () use ($invoices, $uniqueDrugs) {
                 $file = fopen('php://output', 'w');
-                fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF)); // لدعم اللغة العربية
+                fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية
 
                 // 1. بناء صف العناوين (الهيدر)
                 $headers = ['رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المركز'];
 
                 foreach ($uniqueDrugs as $drugId => $drugName) {
                     $headers[] = $drugName; // عمود للكمية
-                    $headers[] = 'خصم ' . $drugName . ' %'; // عمود للخصم
+                    $headers[] = 'خصم '.$drugName.' %'; // عمود للخصم
                 }
 
                 array_push($headers, 'الإجمالي (الصافي)', 'المدفوع', 'المتبقي', 'حالة الفاتورة');
 
-                fputcsv($file, $headers);
+                fputcsv($file, sanitize_csv_row($headers));
 
                 // 2. إدخال بيانات الفواتير
                 foreach ($invoices as $invoice) {
@@ -119,7 +128,7 @@ class InvoiceController extends Controller
                     foreach ($uniqueDrugs as $drugId => $drugName) {
                         if (isset($detailsMap[$drugId])) {
                             $row[] = $detailsMap[$drugId]->quantity; // الكمية
-                            $row[] = $detailsMap[$drugId]->pharmacist_discount_percentage . '%'; // الخصم
+                            $row[] = $detailsMap[$drugId]->pharmacist_discount_percentage.'%'; // الخصم
                         } else {
                             $row[] = '0'; // الكمية صفر إذا لم يكن الدواء موجوداً
                             $row[] = '-'; // لا يوجد خصم
@@ -134,22 +143,22 @@ class InvoiceController extends Controller
                         $statusText
                     );
 
-                    fputcsv($file, $row);
+                    fputcsv($file, sanitize_csv_row($row));
                 }
                 fclose($file);
             };
         } else {
             // التصدير العادي (ملخص)
-            $filename = "invoices_summary_report_" . date('Y-m-d') . ".csv";
+            $filename = 'invoices_summary_report_'.date('Y-m-d').'.csv';
 
             $callback = function () use ($invoices) {
                 $file = fopen('php://output', 'w');
-                fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+                fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     'رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المركز', 'المنطقة',
-                    'الأطباء', 'المندوب', 'الإجمالي (جمهور)', 'الصافي', 'المدفوع', 'المتبقي', 'الحالة'
-                ]);
+                    'الأطباء', 'المندوب', 'الإجمالي (جمهور)', 'الصافي', 'المدفوع', 'المتبقي', 'الحالة',
+                ]));
 
                 foreach ($invoices as $invoice) {
                     $statusText = match ($invoice->status) {
@@ -162,7 +171,7 @@ class InvoiceController extends Controller
                     $doctorsNames = $invoice->doctors->pluck('name')->implode(' - ') ?: '-';
                     $zoneName = $invoice->pharmacist?->center?->zones?->first()?->name ?? '-';
 
-                    fputcsv($file, [
+                    fputcsv($file, sanitize_csv_row([
                         $invoice->serial_number ?? $invoice->id,
                         $invoice->invoice_date,
                         $invoice->pharmacist->name ?? '-',
@@ -174,28 +183,29 @@ class InvoiceController extends Controller
                         $invoice->final_total,
                         $invoice->paid_amount,
                         $invoice->remaining_amount,
-                        $statusText
-                    ]);
+                        $statusText,
+                    ]));
                 }
                 fclose($file);
             };
         }
 
         return response()->stream($callback, 200, [
-            "Content-Type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma" => "no-cache",
-            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-            "Expires" => "0"
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=$filename",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ]);
     }
+
     public function create()
     {
-        $provinces   = Province::select('id', 'name')->get();
+        $provinces = Province::select('id', 'name')->get();
         $pharmacists = $this->getPharmacistsForForm();
-        $doctors     = [];
-        $drugs       = Drug::select('id', 'name', 'price', 'line')->get();
-        $today       = Carbon::now()->format('Y-m-d');
+        $doctors = [];
+        $drugs = Drug::select('id', 'name', 'price', 'line')->get();
+        $today = Carbon::now()->format('Y-m-d');
 
         return view('admin.invoices.create', compact('provinces', 'pharmacists', 'doctors', 'drugs', 'today'));
     }
@@ -236,32 +246,40 @@ class InvoiceController extends Controller
             }
 
             DB::commit();
+
             return redirect()->route('admin.invoices.index')->with(['success' => "تم حفظ الفاتورة ({$request->serial_number}) بنجاح."]);
         } catch (ValidationException $e) {
             DB::rollBack();
+
             return redirect()->back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with(['error' => 'حدث خطأ: ' . $e->getMessage()])->withInput();
+
+            return redirect()->back()->with(['error' => 'حدث خطأ: '.$e->getMessage()])->withInput();
         }
     }
 
     public function edit(Invoice $invoice)
     {
-        $invoice->load('doctors');
-        $provinces   = Province::select('id', 'name')->get();
-        $pharmacists = $this->getPharmacistsForForm();
-        $doctors     = [];
-        $drugs       = Drug::where('line', $invoice->line)->select('id', 'name', 'price', 'line')->get();
+        if ($invoice->hasReturns()) {
+            return redirect()->route('admin.invoices.index')
+                ->with(['error' => 'لا يمكن تعديل الفاتورة رقم ('.($invoice->serial_number ?? $invoice->id).') لوجود مرتجعات مسجلة عليها.']);
+        }
 
-        $invoiceDetails = $invoice->details->map(fn($detail) => [
-            'id'                => $detail->id,
-            'drug_id'           => $detail->drug_id,
+        $invoice->load('doctors');
+        $provinces = Province::select('id', 'name')->get();
+        $pharmacists = $this->getPharmacistsForForm();
+        $doctors = [];
+        $drugs = Drug::where('line', $invoice->line)->select('id', 'name', 'price', 'line')->get();
+
+        $invoiceDetails = $invoice->details->map(fn ($detail) => [
+            'id' => $detail->id,
+            'drug_id' => $detail->drug_id,
             'drug_name_display' => $detail->drug->name,
-            'unit_price'        => $detail->unit_price,
-            'quantity'          => $detail->quantity,
-            'discount'          => $detail->pharmacist_discount_percentage,
-            'total'             => $detail->row_total,
+            'unit_price' => $detail->unit_price,
+            'quantity' => $detail->quantity,
+            'discount' => $detail->pharmacist_discount_percentage,
+            'total' => $detail->row_total,
         ]);
 
         return view('admin.invoices.edit', compact('invoice', 'invoiceDetails', 'provinces', 'pharmacists', 'doctors', 'drugs'));
@@ -269,6 +287,11 @@ class InvoiceController extends Controller
 
     public function update(Request $request, Invoice $invoice)
     {
+        if ($invoice->hasReturns()) {
+            return redirect()->route('admin.invoices.index')
+                ->with(['error' => 'لا يمكن تعديل الفاتورة رقم ('.($invoice->serial_number ?? $invoice->id).') لوجود مرتجعات مسجلة عليها.']);
+        }
+
         $this->validateInvoice($request, $invoice->id);
 
         try {
@@ -277,7 +300,7 @@ class InvoiceController extends Controller
             $oldZoneData = $this->resolveZoneAndWarehouse($invoice->pharmacist_id, $invoice->line);
             $oldWarehouse = $oldZoneData['warehouse'];
             foreach ($invoice->details as $detail) {
-                $this->updateWarehouseStock($oldWarehouse, $detail->drug_id, $detail->quantity, 'add');
+                $this->updateWarehouseStock($oldWarehouse, $detail->drug_id, $detail->quantity, 'add', $invoice, 'إعادة رصيد قبل تعديل الفاتورة');
             }
 
             if ($invoice->status == 1 && $invoice->doctors()->count() > 0) {
@@ -312,19 +335,27 @@ class InvoiceController extends Controller
             }
 
             DB::commit();
+
             return redirect()->route('admin.invoices.index')->with(['success' => 'تم تعديل الفاتورة بنجاح']);
 
         } catch (ValidationException $e) {
             DB::rollBack();
+
             return redirect()->back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with(['error' => 'حدث خطأ: ' . $e->getMessage()])->withInput();
+
+            return redirect()->back()->with(['error' => 'حدث خطأ: '.$e->getMessage()])->withInput();
         }
     }
 
     public function destroy(Invoice $invoice)
     {
+        if ($invoice->hasReturns()) {
+            return redirect()->route('admin.invoices.index')
+                ->with(['error' => 'لا يمكن حذف الفاتورة رقم ('.($invoice->serial_number ?? $invoice->id).') لوجود مرتجعات مسجلة عليها. يجب معالجة المرتجعات أولاً.']);
+        }
+
         try {
             DB::beginTransaction();
             if ($invoice->status == 1 && $invoice->doctors()->count() > 0) {
@@ -333,22 +364,28 @@ class InvoiceController extends Controller
             $zoneData = $this->resolveZoneAndWarehouse($invoice->pharmacist_id, $invoice->line);
             $warehouse = $zoneData['warehouse'];
             foreach ($invoice->details as $detail) {
-                $this->updateWarehouseStock($warehouse, $detail->drug_id, $detail->quantity, 'add');
+                $unreturnedQty = max(0, (int) $detail->quantity);
+                if ($unreturnedQty > 0) {
+                    $this->updateWarehouseStock($warehouse, $detail->drug_id, $unreturnedQty, 'add', $invoice, 'حذف الفاتورة');
+                }
             }
             $invoice->details()->delete();
             $invoice->doctors()->detach();
             $invoice->delete(); // Payments will cascade delete automatically
             DB::commit();
+
             return redirect()->route('admin.invoices.index')->with(['success' => 'تم حذف الفاتورة']);
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with(['error' => 'حدث خطأ: ' . $e->getMessage()]);
+
+            return redirect()->back()->with(['error' => 'حدث خطأ: '.$e->getMessage()]);
         }
     }
 
     public function show(Invoice $invoice)
     {
         $invoice->load(['representative', 'medicalRepresentative', 'pharmacist.center', 'doctors', 'details.drug']);
+
         return view('admin.invoices.show', compact('invoice'));
     }
 
@@ -356,7 +393,7 @@ class InvoiceController extends Controller
     {
         $invoice->load(['representative', 'medicalRepresentative', 'pharmacist.center', 'doctors', 'details.drug']);
         $html = view('admin.invoices.pdf', compact('invoice'))->render();
-        $arabic = new Arabic();
+        $arabic = new Arabic;
         $p = $arabic->arIdentify($html);
         for ($i = count($p) - 1; $i >= 0; $i -= 2) {
             $utf8ar = $arabic->utf8Glyphs(substr($html, $p[$i - 1], $p[$i] - $p[$i - 1]));
@@ -364,7 +401,8 @@ class InvoiceController extends Controller
         }
         $pdf = Pdf::loadHTML($html);
         $pdf->setOption(['dpi' => 150, 'defaultFont' => 'DejaVu Sans', 'isRemoteEnabled' => true]);
-        return $pdf->stream('invoice_' . $invoice->id . '.pdf');
+
+        return $pdf->stream('invoice_'.$invoice->id.'.pdf');
     }
 
     // ==========================================
@@ -373,18 +411,19 @@ class InvoiceController extends Controller
 
     public function payments(Invoice $invoice)
     {
-        $invoice->load(['payments' => function($q) {
+        $invoice->load(['payments' => function ($q) {
             $q->orderBy('payment_date', 'desc');
         }, 'pharmacist']);
+
         return view('admin.invoices.payments', compact('invoice'));
     }
 
     public function storePayment(Request $request, Invoice $invoice)
     {
         $request->validate([
-            'amount' => 'required|numeric|min:0.01|max:' . $invoice->remaining_amount,
+            'amount' => 'required|numeric|min:0.01|max:'.$invoice->remaining_amount,
             'payment_date' => 'required|date',
-            'notes' => 'nullable|string|max:255'
+            'notes' => 'nullable|string|max:255',
         ]);
 
         $wasFullyPaid = ($invoice->status == 1);
@@ -394,15 +433,17 @@ class InvoiceController extends Controller
             $invoice->payments()->create([
                 'amount' => $request->amount,
                 'payment_date' => $request->payment_date,
-                'notes' => $request->notes
+                'notes' => $request->notes,
             ]);
 
             $this->recalculateInvoicePayments($invoice, $wasFullyPaid, true);
             DB::commit();
+
             return redirect()->back()->with('success', 'تم إضافة الدفعة بنجاح.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'حدث خطأ: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'حدث خطأ: '.$e->getMessage());
         }
     }
 
@@ -412,9 +453,9 @@ class InvoiceController extends Controller
         $maxAllowed = $payment->amount + $invoice->remaining_amount;
 
         $request->validate([
-            'amount' => 'required|numeric|min:0.01|max:' . $maxAllowed,
+            'amount' => 'required|numeric|min:0.01|max:'.$maxAllowed,
             'payment_date' => 'required|date',
-            'notes' => 'nullable|string|max:255'
+            'notes' => 'nullable|string|max:255',
         ]);
 
         $wasFullyPaid = ($invoice->status == 1);
@@ -424,15 +465,17 @@ class InvoiceController extends Controller
             $payment->update([
                 'amount' => $request->amount,
                 'payment_date' => $request->payment_date,
-                'notes' => $request->notes
+                'notes' => $request->notes,
             ]);
 
             $this->recalculateInvoicePayments($invoice, $wasFullyPaid, true);
             DB::commit();
+
             return redirect()->back()->with('success', 'تم تعديل الدفعة بنجاح.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'حدث خطأ: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'حدث خطأ: '.$e->getMessage());
         }
     }
 
@@ -445,10 +488,12 @@ class InvoiceController extends Controller
             $payment->delete();
             $this->recalculateInvoicePayments($invoice, $wasFullyPaid, true);
             DB::commit();
+
             return redirect()->back()->with('success', 'تم حذف الدفعة بنجاح.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'حدث خطأ: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'حدث خطأ: '.$e->getMessage());
         }
     }
 
@@ -473,12 +518,12 @@ class InvoiceController extends Controller
         $invoice->update([
             'paid_amount' => $totalPaid,
             'remaining_amount' => $remaining,
-            'status' => $newStatus
+            'status' => $newStatus,
         ]);
 
         // إذا تم تحصيل الفاتورة بالكامل للتو، نضيفها للتارجت. وإذا تم إلغاء دفعها نخصمها من التارجت.
         if ($triggerDeals) {
-            if (!$wasFullyPaid && $newStatus == 1 && $invoice->doctors()->count() > 0) {
+            if (! $wasFullyPaid && $newStatus == 1 && $invoice->doctors()->count() > 0) {
                 $invoice->load(['details', 'doctors']);
                 $this->processDoctorDealImpact($invoice, 'increment');
             } elseif ($wasFullyPaid && $newStatus != 1 && $invoice->doctors()->count() > 0) {
@@ -495,36 +540,38 @@ class InvoiceController extends Controller
     {
         return Pharmacist::with([
             'center',
-            'deals' => fn($q) => $q->where('is_archived', false)->where('is_active', true),
+            'deals' => fn ($q) => $q->where('is_archived', false)->where('is_active', true),
             'deals.doctor',
             'deals.drugs',
-        ])->get()->map(fn($ph) => [
-            'id'        => $ph->id,
-            'name'      => $ph->name,
+        ])->get()->map(fn ($ph) => [
+            'id' => $ph->id,
+            'name' => $ph->name,
             'center_id' => $ph->center_id,
-            'center'    => $ph->center ? [
-                'id'          => $ph->center->id,
-                'name'        => $ph->center->name,
+            'center' => $ph->center ? [
+                'id' => $ph->center->id,
+                'name' => $ph->center->name,
                 'province_id' => $ph->center->province_id,
             ] : null,
-            'deals'     => $ph->deals
+            'deals' => $ph->deals
                 ->map(function ($deal) {
-                    if ($deal->is_archived || !$deal->doctor) return null;
+                    if ($deal->is_archived || ! $deal->doctor) {
+                        return null;
+                    }
 
                     $isComplete = $deal->target_amount > 0
                         && $deal->achieved_amount >= $deal->target_amount;
 
                     return [
-                        'id'         => $deal->id,
-                        'drugs'      => $deal->drugs->pluck('id')->toArray(),
+                        'id' => $deal->id,
+                        'drugs' => $deal->drugs->pluck('id')->toArray(),
 
                         'drug_names' => $deal->drugs->pluck('name')->toArray(),
 
                         'is_general' => $deal->drugs->isEmpty(),
-                        'doctor'     => [
-                            'id'              => $deal->doctor->id,
-                            'name'            => $deal->doctor->name . ($isComplete ? ' (مكتمل)' : ''),
-                            'speciality'      => $deal->doctor->speciality,
+                        'doctor' => [
+                            'id' => $deal->doctor->id,
+                            'name' => $deal->doctor->name.($isComplete ? ' (مكتمل)' : ''),
+                            'speciality' => $deal->doctor->speciality,
                             'commission_rate' => $deal->commission_percentage,
                         ],
                     ];
@@ -558,7 +605,7 @@ class InvoiceController extends Controller
             $query->where('serial_number', $request->serial_number);
         }
         if ($request->filled('line')) {
-            $query->where('line', 'like', '%' . $request->line . '%');
+            $query->where('line', 'like', '%'.$request->line.'%');
         }
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -581,7 +628,7 @@ class InvoiceController extends Controller
     private function validateInvoice($request, $id = null)
     {
         $request->validate([
-            'serial_number' => 'required|string',
+            'serial_number' => 'required|string|max:255|unique:invoices,serial_number'.($id ? ','.$id : ''),
             'invoice_date' => 'required|date',
             'line' => 'required|in:1,2',
             'pharmacist_id' => 'required|exists:pharmacists,id',
@@ -602,8 +649,13 @@ class InvoiceController extends Controller
         $zone = Zone::where('line', $line)->whereHas('centers', function ($q) use ($pharmacist) {
             $q->where('centers.id', $pharmacist->center_id);
         })->first();
-        if (!$zone) throw ValidationException::withMessages(['line' => "عفواً، لا توجد منطقة مسجلة لـ Line $line تشمل مركز ({$pharmacist->center->name})."]);
-        if (!$zone->warehouse_id) throw ValidationException::withMessages(['line' => "المنطقة ({$zone->name}) غير مربوطة بمخزن."]);
+        if (! $zone) {
+            throw ValidationException::withMessages(['line' => "عفواً، لا توجد منطقة مسجلة لـ Line $line تشمل مركز ({$pharmacist->center->name})."]);
+        }
+        if (! $zone->warehouse_id) {
+            throw ValidationException::withMessages(['line' => "المنطقة ({$zone->name}) غير مربوطة بمخزن."]);
+        }
+
         return ['zone' => $zone, 'warehouse' => Warehouse::find($zone->warehouse_id), 'sales_rep_id' => $zone->sales_representative_id, 'medical_rep_id' => $zone->medical_representative_id];
     }
 
@@ -613,8 +665,12 @@ class InvoiceController extends Controller
         $totalDiscount = 0;
         foreach ($items as $item) {
             $drug = Drug::find($item['drug_id']);
-            if ($drug->line != $invoice->line) throw ValidationException::withMessages(['items' => "الدواء ({$drug->name}) لا يتبع Line {$invoice->line}."]);
-            if ($operation == 'deduct') $this->updateWarehouseStock($warehouse, $drug->id, $item['quantity'], 'deduct');
+            if ($drug->line != $invoice->line) {
+                throw ValidationException::withMessages(['items' => "الدواء ({$drug->name}) لا يتبع Line {$invoice->line}."]);
+            }
+            if ($operation == 'deduct') {
+                $this->updateWarehouseStock($warehouse, $drug->id, $item['quantity'], 'deduct', $invoice);
+            }
             $price = $drug->price;
             $qty = $item['quantity'];
             $discountPerc = $item['pharmacist_discount_percentage'] ?? 0;
@@ -625,19 +681,23 @@ class InvoiceController extends Controller
             $totalAmount += $rowTotalBefore;
             $totalDiscount += $rowDiscount;
         }
+
         return ['total' => $totalAmount, 'discount' => $totalDiscount];
     }
 
-    private function updateWarehouseStock(Warehouse $warehouse, $drugId, $quantity, $operation)
+    private function updateWarehouseStock(Warehouse $warehouse, $drugId, $quantity, $operation, ?Invoice $invoice = null, ?string $notes = null)
     {
-        $stockRecord = $warehouse->drugs()->where('drug_id', $drugId)->first();
-        $currentQty = $stockRecord ? $stockRecord->pivot->quantity : 0;
-        if ($operation == 'deduct') {
-            if ($currentQty < $quantity) throw ValidationException::withMessages(['items' => "الكمية غير متوفرة للصنف (" . Drug::find($drugId)->name . ")."]);
-            $newQty = $currentQty - $quantity;
-        } else $newQty = $currentQty + $quantity;
-        if ($stockRecord) $warehouse->drugs()->updateExistingPivot($drugId, ['quantity' => $newQty]);
-        else if ($operation == 'add') $warehouse->drugs()->attach($drugId, ['quantity' => $newQty]);
+        $inventoryService = app(InventoryService::class);
+        $context = [
+            'reference' => $invoice,
+            'reference_label' => $invoice ? 'فاتورة #'.($invoice->serial_number ?: $invoice->id) : null,
+            'notes' => $notes,
+        ];
+        if ($operation === 'deduct') {
+            $inventoryService->deductStock($warehouse, (int) $drugId, (int) $quantity, 'sale', $context);
+        } else {
+            $inventoryService->addStock($warehouse, (int) $drugId, (int) $quantity, 'invoice_reversal', $context);
+        }
     }
 
     private function processDoctorDealImpact(Invoice $invoice, $operation)
@@ -645,20 +705,25 @@ class InvoiceController extends Controller
         if ($operation === 'decrement') {
             $attachedDeals = $invoice->deals;
 
-            if ($attachedDeals->isEmpty()) return;
+            if ($attachedDeals->isEmpty()) {
+                return;
+            }
 
             foreach ($attachedDeals as $deal) {
                 $contributionAmount = $deal->pivot->contribution_amount;
                 $deal->decrement('achieved_amount', $contributionAmount);
                 $deal->invoices()->detach($invoice->id);
             }
+
             return;
         }
 
         $invoiceDate = $invoice->invoice_date ?? $invoice->created_at;
 
         $doctorIds = $invoice->doctors->pluck('id')->toArray();
-        if (empty($doctorIds)) return;
+        if (empty($doctorIds)) {
+            return;
+        }
 
         $deals = DoctorDeal::with('drugs')
             ->whereIn('doctor_id', $doctorIds)
@@ -674,7 +739,9 @@ class InvoiceController extends Controller
             })
             ->get();
 
-        if ($deals->isEmpty()) return;
+        if ($deals->isEmpty()) {
+            return;
+        }
 
         foreach ($deals as $deal) {
             $includedDrugIds = $deal->drugs->pluck('id')->toArray();
@@ -686,14 +753,14 @@ class InvoiceController extends Controller
             foreach ($invoice->details as $detail) {
                 // إذا كان الاتفاق عام، أو الصنف من ضمن أدوية الاتفاق المحددة
                 if ($isGeneralDeal || in_array($detail->drug_id, $includedDrugIds)) {
-                    $dealContribution += $detail->quantity*$detail->unit_price;
+                    $dealContribution += $detail->quantity * $detail->unit_price;
                 }
             }
 
             if ($dealContribution > 0) {
                 $deal->increment('achieved_amount', $dealContribution);
                 $deal->invoices()->syncWithoutDetaching([
-                    $invoice->id => ['contribution_amount' => $dealContribution]
+                    $invoice->id => ['contribution_amount' => $dealContribution],
                 ]);
             }
         }
@@ -702,6 +769,16 @@ class InvoiceController extends Controller
     private function updateInvoiceTotals(Invoice $invoice, array $totals, $status, $inputPaid, $isNew = false)
     {
         $final = $totals['total'] - $totals['discount'];
+
+        // عند تعديل الفاتورة: لا يسمح بأن يقل الصافي الجديد عن المبالغ المسددة فعلياً
+        if (! $isNew) {
+            $alreadyPaid = (float) $invoice->payments()->sum('amount');
+            if (round($final, 2) < round($alreadyPaid, 2)) {
+                throw ValidationException::withMessages([
+                    'items' => 'صافي الفاتورة بعد التعديل ('.number_format($final, 2).' ج.م) أقل من المبالغ المسددة عليها ('.number_format($alreadyPaid, 2).' ج.م). يرجى تعديل أو حذف الدفعات أولاً.',
+                ]);
+            }
+        }
 
         $invoice->update([
             'total_amount' => $totals['total'],
@@ -715,7 +792,7 @@ class InvoiceController extends Controller
                 $invoice->payments()->create([
                     'amount' => $paid,
                     'payment_date' => $invoice->invoice_date,
-                    'notes' => 'دفعة مقدمة عند إنشاء الفاتورة'
+                    'notes' => 'دفعة مقدمة عند إنشاء الفاتورة',
                 ]);
             }
         }

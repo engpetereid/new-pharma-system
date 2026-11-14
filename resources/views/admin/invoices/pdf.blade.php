@@ -23,12 +23,12 @@
     <table>
         <tr>
             <td style="font-weight: bold;">
-                <img src="{{public_path('assets/admin/images/slogan.jpg')}}"  style="height:80px">
+                <img src="{{public_path('assets/admin/images/brand/ruqax-wordmark-light.png')}}"  style="height:80px">
 
             </td>
             <td width="40%" style="text-align: left;">
                 <h1 style="margin:0; font-size: 18px;">فاتورة مبيعات</h1>
-                <p style="margin:2px 0;"> <strong>#{{ $invoice->serial_number ?? $invoice->id }}: رقم</strong></p>
+                <p style="margin:2px 0;"><strong>رقم الفاتورة: #{{ $invoice->serial_number ?? $invoice->id }}</strong></p>
                 <p style="margin:2px 0;">التاريخ: {{ $invoice->invoice_date }}</p>
                 <p style="margin:2px 0; font-weight: bold; color: {{ $invoice->line == 1 ? '#17a2b8' : '#ffc107' }}">Line {{ $invoice->line }}</p>
             </td>
@@ -87,7 +87,7 @@
     </tbody>
 </table>
 
-<table class="total-table e">
+<table class="total-table">
     <tr>
         <td style="text-align: left;">{{ number_format($invoice->total_amount, 2) }}</td>
         <td>الإجمالي:</td>

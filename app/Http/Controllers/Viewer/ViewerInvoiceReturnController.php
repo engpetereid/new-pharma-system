@@ -86,7 +86,7 @@ class ViewerInvoiceReturnController extends Controller
             $file = fopen('php://output', 'w');
             fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية في Excel
 
-            fputcsv($file, [
+            fputcsv($file, sanitize_csv_row([
                 'رقم المرتجع',
                 'تاريخ المرتجع',
                 'رقم الفاتورة الأصلية',
@@ -99,10 +99,10 @@ class ViewerInvoiceReturnController extends Controller
                 'المبلغ المسترد نقداً',
                 'المسجل بواسطة',
                 'ملاحظات',
-            ]);
+            ]));
 
             foreach ($returns as $ret) {
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $ret->return_number,
                     $ret->return_date->format('Y-m-d'),
                     $ret->invoice->serial_number ?? $ret->invoice_id,
@@ -115,7 +115,7 @@ class ViewerInvoiceReturnController extends Controller
                     $ret->refund_amount,
                     $ret->creator->name ?? 'النظام',
                     $ret->notes ?? '-',
-                ]);
+                ]));
             }
 
             fclose($file);

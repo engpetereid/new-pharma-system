@@ -107,7 +107,7 @@
                         <p>تاريخ الطباعة: {{ date('Y-m-d H:i') }}</p>
                     </div>
                     <div class="print-logo">
-                        <img src="{{ asset('assets/admin/images/slogan.jpg') }}" alt="Logo">
+                        <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}" alt="Logo">
                     </div>
                 </div>
 
@@ -126,6 +126,9 @@
                 </div>
             </div>
             <div class="text-right content-header-right col-md-6 col-12">
+                <a href="{{ route('admin.stock-movements.index', ['warehouse_id' => [$warehouse->id]]) }}" class="btn btn-info box-shadow-2 mr-1">
+                    <i class="la la-history"></i> سجل الحركات
+                </a>
                 <a href="{{ route('admin.warehouses.edit', $warehouse->id) }}" class="btn btn-warning box-shadow-2">
                     <i class="ft-edit"></i> تعديل البيانات
                 </a>

@@ -264,6 +264,7 @@
                 e.preventDefault();
                 return false;
             }
+            $('#btnSubmitReturn').prop('disabled', true).html('<i class="la la-spinner spinner"></i> جاري حفظ وتأكيد المرتجع...');
         });
 
         recalculate();

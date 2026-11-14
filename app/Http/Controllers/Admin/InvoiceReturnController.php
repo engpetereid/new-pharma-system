@@ -168,7 +168,7 @@ class InvoiceReturnController extends Controller
                 $detail = $invoice->details()->where('id', $itemData['detail_id'])->first();
 
                 // إعادة الكمية المرتجعة لمخزن المنطقة
-                $this->updateWarehouseStock($warehouse, $detail->drug_id, $qty, 'add');
+                $this->updateWarehouseStock($warehouse, $detail->drug_id, $qty, 'add', $invoiceReturn, 'sales_return');
 
                 if ($warehouse) {
                     AuditService::log(
@@ -466,7 +466,7 @@ class InvoiceReturnController extends Controller
 
                 // 1. معالجة رصيد المخزن للفارق
                 if ($delta > 0 && $warehouse) {
-                    $this->updateWarehouseStock($warehouse, $detail->drug_id, $delta, 'add');
+                    $this->updateWarehouseStock($warehouse, $detail->drug_id, $delta, 'add', $return, 'sales_return', 'زيادة كمية بتعديل المرتجع');
                     AuditService::log(
                         action: 'stock_added',
                         module: 'Warehouse',
@@ -481,7 +481,7 @@ class InvoiceReturnController extends Controller
                         ]
                     );
                 } elseif ($delta < 0 && $warehouse) {
-                    $this->updateWarehouseStock($warehouse, $detail->drug_id, abs($delta), 'deduct');
+                    $this->updateWarehouseStock($warehouse, $detail->drug_id, abs($delta), 'deduct', $return, 'sales_return_reversal', 'تخفيض كمية بتعديل المرتجع');
                     AuditService::log(
                         action: 'stock_returned',
                         module: 'Warehouse',
@@ -707,7 +707,7 @@ class InvoiceReturnController extends Controller
                 }
 
                 if ($warehouse) {
-                    $this->updateWarehouseStock($warehouse, $returnItem->drug_id, $qty, 'deduct');
+                    $this->updateWarehouseStock($warehouse, $returnItem->drug_id, $qty, 'deduct', $return, 'sales_return_reversal', 'حذف المرتجع');
                     AuditService::log(
                         action: 'stock_returned',
                         module: 'Warehouse',
@@ -770,11 +770,16 @@ class InvoiceReturnController extends Controller
             $this->syncDoctorDeals($invoice, $newStatus);
 
             // 5. تسجيل التدقيق
+            $description = "تم حذف وإلغاء إيصال مرتجع المبيعات رقم ({$returnNumber}) للفاتورة #{$invoice->serial_number} واستعادة كميات الفاتورة وخصمها من المخزن.";
+            if (($oldReturnData['refund_amount'] ?? 0) > 0) {
+                $description .= " [تحذير مالي: تضمن هذا المرتجع مسبقاً استرداداً نقدياً بمبلغ {$oldReturnData['refund_amount']} ج.م يتطلب تسوية يدوية مع الخزينة/الصيدلي].";
+            }
+
             AuditService::log(
                 action: 'deleted',
                 module: 'InvoiceReturn',
                 entity: $return,
-                description: "تم حذف وإلغاء إيصال مرتجع المبيعات رقم ({$returnNumber}) للفاتورة #{$invoice->serial_number} واستعادة كميات الفاتورة وخصمها من المخزن.",
+                description: $description,
                 oldValues: $oldReturnData
             );
 
@@ -784,8 +789,13 @@ class InvoiceReturnController extends Controller
 
             DB::commit();
 
+            $successMsg = "تم إلغاء وحذف إيصال المرتجع ({$returnNumber}) بنجاح وعكس جميع الكميات على المخزن والفاتورة.";
+            if (($oldReturnData['refund_amount'] ?? 0) > 0) {
+                $successMsg .= " (تنبيه: تضمن المرتجع استرداداً نقدياً بمبلغ {$oldReturnData['refund_amount']} ج.م؛ يرجى مراجعة تسوية الخزينة).";
+            }
+
             return redirect()->route('admin.returns.index')
-                ->with('success', "تم إلغاء وحذف إيصال المرتجع ({$returnNumber}) بنجاح وعكس جميع الكميات على المخزن والفاتورة.");
+                ->with('success', $successMsg);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -805,7 +815,7 @@ class InvoiceReturnController extends Controller
             $file = fopen('php://output', 'w');
             fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF)); // لدعم اللغة العربية في Excel
 
-            fputcsv($file, [
+            fputcsv($file, sanitize_csv_row([
                 'رقم المرتجع',
                 'تاريخ المرتجع',
                 'رقم الفاتورة الأصلية',
@@ -818,10 +828,10 @@ class InvoiceReturnController extends Controller
                 'المبلغ المسترد نقداً',
                 'المسجل بواسطة',
                 'ملاحظات',
-            ]);
+            ]));
 
             foreach ($returns as $ret) {
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $ret->return_number,
                     $ret->return_date->format('Y-m-d'),
                     $ret->invoice->serial_number ?? $ret->invoice_id,
@@ -834,7 +844,7 @@ class InvoiceReturnController extends Controller
                     $ret->refund_amount,
                     $ret->creator->name ?? 'النظام',
                     $ret->notes ?? '-',
-                ]);
+                ]));
             }
 
             fclose($file);
@@ -960,25 +970,19 @@ class InvoiceReturnController extends Controller
     /**
      * تحديث رصيد المخزن للصنف
      */
-    private function updateWarehouseStock(Warehouse $warehouse, $drugId, $quantity, $operation): void
+    private function updateWarehouseStock(Warehouse $warehouse, $drugId, $quantity, $operation, ?InvoiceReturn $return = null, string $type = 'sales_return', ?string $notes = null): void
     {
-        $stockRecord = $warehouse->drugs()->where('drug_id', $drugId)->first();
-        $currentQty = $stockRecord ? $stockRecord->pivot->quantity : 0;
+        $inventory = app(\App\Services\InventoryService::class);
+        $context = [
+            'reference' => $return,
+            'reference_label' => $return ? 'مرتجع '.$return->return_number : null,
+            'notes' => $notes,
+        ];
 
         if ($operation == 'deduct') {
-            if ($currentQty < $quantity) {
-                $drug = \App\Models\Drug::find($drugId);
-                throw ValidationException::withMessages(['items' => 'الكمية غير متوفرة للصنف ('.($drug->name ?? $drugId).').']);
-            }
-            $newQty = $currentQty - $quantity;
+            $inventory->deductStock($warehouse, (int) $drugId, (int) $quantity, $type, $context);
         } else {
-            $newQty = $currentQty + $quantity;
-        }
-
-        if ($stockRecord) {
-            $warehouse->drugs()->updateExistingPivot($drugId, ['quantity' => $newQty]);
-        } elseif ($operation == 'add') {
-            $warehouse->drugs()->attach($drugId, ['quantity' => $newQty]);
+            $inventory->addStock($warehouse, (int) $drugId, (int) $quantity, $type, $context);
         }
     }
 }

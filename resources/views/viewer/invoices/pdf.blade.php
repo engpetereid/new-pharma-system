@@ -23,7 +23,7 @@
     <table>
         <tr>
             <td style="font-weight: bold;">
-                <img src="{{public_path('assets/admin/images/slogan.jpg')}}"  style="height:80px">
+                <img src="{{public_path('assets/admin/images/brand/ruqax-wordmark-light.png')}}"  style="height:80px">
 
             </td>
             <td width="40%" style="text-align: left;">

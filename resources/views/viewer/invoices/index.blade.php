@@ -96,7 +96,7 @@
                     </div>
 
                     <div class="col-4 text-end">
-                        <img src="{{ asset('assets/admin/images/slogan.jpg') }}"
+                        <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}"
                             alt="Logo"
                             style="height: 80px;"  >
                     </div>
@@ -395,8 +395,6 @@
                                                 <tr>
                                                     <td colspan="7" class="py-3 text-center text-muted">
                                                         <i class="ft-alert-circle font-medium-1"></i> لا توجد فواتير مسجلة تطابق البحث.
-                                                        <br>
-                                                        <a href="{{ route('viewer.invoices.create') }}" class="mt-1 btn btn-sm btn-primary">إضافة فاتورة جديدة</a>
                                                     </td>
                                                 </tr>
                                             @endforelse

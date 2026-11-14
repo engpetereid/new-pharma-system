@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class InvoiceReturn extends Model
 {
@@ -41,6 +42,10 @@ class InvoiceReturn extends Model
      */
     public static function generateReturnNumber(Invoice $invoice): string
     {
+        if (DB::transactionLevel() > 0) {
+            Invoice::where('id', $invoice->id)->lockForUpdate()->first();
+        }
+
         $prefix = trim((string) ($invoice->serial_number ?: $invoice->id));
 
         // الهروب من الرموز الخاصة بـ SQL LIKE

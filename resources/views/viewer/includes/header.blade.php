@@ -8,10 +8,12 @@
                     </a>
                 </li>
                 <li class="mr-auto nav-item">
-                    <a class="navbar-brand" href="{{ route('viewer.dashboard') }}">
-                        <img src="{{ asset('assets/admin/images/logo.jpg') }}" alt="Logo" style="height: 40px; margin-left: 5px;">
-                        <h3 class="ml-1 brand-text d-inline-block"
-                            style="vertical-align: middle; font-weight: bold; color: #19502c;">Bio Vera</h3>
+                    <a class="navbar-brand rq-brand" href="{{ route('viewer.dashboard') }}">
+                        <img src="{{ asset('assets/admin/images/brand/ruqax-mark.png') }}" alt="RUQAX">
+                        <span class="rq-brand-text brand-text">
+                            <span class="rq-name">RUQA<b>X</b></span>
+                            <span class="rq-sub">PHARMACEUTICALS</span>
+                        </span>
                     </a>
                 </li>
                 <li class="nav-item d-md-none">
@@ -43,7 +45,7 @@
                             <span class="avatar avatar-online">
                                 <span class="text-center text-white avatar-content bg-primary rounded-circle"
                                       style="width: 35px; height: 35px; display: inline-block; line-height: 35px; font-weight: bold;">
-                                    {{ substr(auth()->user()->name, 0, 1) }}
+                                    {{ mb_substr(auth()->user()->name, 0, 1) }}
                                 </span>
                                 <i></i>
                             </span>

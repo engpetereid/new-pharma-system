@@ -81,14 +81,23 @@
                                                     </div>
                                                 @endif
 
+@php $isSupply = !($warehouse->type == 'sub' && $warehouse->parent); @endphp
+                                                @if($isSupply)
+                                                    <div class="alert alert-warning mb-2">
+                                                        <i class="ft-dollar-sign mr-1"></i> أدخل <strong>سعر الإنتاج (التكلفة)</strong> للوحدة لكل صنف
+                                                    </div>
+                                                @endif
                                                 <div class="stock-manager" x-data="stockManager">
                                                     <div class="table-responsive">
                                                         <table class="table table-bordered mb-0">
                                                             <thead>
                                                             <tr>
-                                                                <th width="50%">اسم الدواء</th>
+                                                                <th width="{{ $isSupply ? '35%' : '50%' }}">اسم الدواء</th>
                                                                 <th width="20%">الرصيد المتاح (الرئيسي)</th>
-                                                                <th width="20%">الكمية المطلوبة</th>
+                                                                <th width="{{ $isSupply ? '15%' : '20%' }}">الكمية المطلوبة</th>
+                                                                @if($isSupply)
+                                                                    <th width="20%">سعر الإنتاج للوحدة <span class="text-danger">*</span></th>
+                                                                @endif
                                                                 <th width="10%" class="text-center">حذف</th>
                                                             </tr>
                                                             </thead>
@@ -142,6 +151,18 @@
                                                                         <small class="text-danger d-block" x-show="row.error" x-text="row.error"></small>
                                                                     </td>
 
+                                                                    @if($isSupply)
+                                                                        <td>
+                                                                            <input type="number" min="0" step="0.01"
+                                                                                   class="form-control text-center"
+                                                                                   :name="'items['+index+'][production_price]'"
+                                                                                   x-model="row.production_price"
+                                                                                   placeholder="0.00" required>
+                                                                            <small class="text-muted d-block" x-show="row.quantity && row.production_price"
+                                                                                   x-text="'الإجمالي: ' + (row.quantity * row.production_price).toFixed(2)"></small>
+                                                                        </td>
+                                                                    @endif
+
                                                                     <td class="text-center">
                                                                         <button type="button" class="btn btn-danger btn-sm" @click="removeItem(index)">
                                                                             <i class="ft-trash"></i>
@@ -152,7 +173,7 @@
                                                             </tbody>
                                                             <tfoot>
                                                             <tr>
-                                                                <td colspan="4" class="text-center p-2">
+                                                                <td colspan="{{ $isSupply ? 5 : 4 }}" class="text-center p-2">
                                                                     <button type="button" class="btn btn-success btn-min-width box-shadow-2" @click="addNewRow()">
                                                                         <i class="la la-plus"></i> إضافة صنف آخر
                                                                     </button>
@@ -200,6 +221,7 @@
                         drug_id: '',
                         drug_name: '',
                         quantity: 1,
+                        production_price: '',
                         max_quantity: null,
                         error: '',
                         show_list: false,
@@ -227,6 +249,9 @@
                     this.items[index].drug_id = drug.id;
                     this.items[index].drug_name = drug.name;
                     this.items[index].max_quantity = drug.max_quantity;
+                    if (drug.production_price !== undefined && drug.production_price !== null) {
+                        this.items[index].production_price = drug.production_price;
+                    }
                     this.items[index].show_list = false;
                     this.validateQuantity(index);
                 },

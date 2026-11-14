@@ -24,7 +24,7 @@
 
                         <div class="mb-3 row">
                             <div class="text-left col-md-6">
-                                <h3 class="text-primary text-bold-800">Bio vera</h3>
+                                <img src="{{ asset('assets/admin/images/brand/ruqax-wordmark-light.png') }}" alt="RUQAX Pharmaceuticals" style="height: 70px; max-width: 100%;">
                                 <p class="text-muted">نظام التوزيع الدوائي</p>
                             </div>
                             <div class="text-right col-md-6">

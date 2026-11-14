@@ -84,6 +84,14 @@ class PharmacistController extends Controller
     }
 
     public function destroy(Pharmacist $pharmacist) {
+        // الحذف يتتالى على الفواتير والدفعات بدون إعادة المخزون، لذا يُمنع عند وجود حركة
+        if ($pharmacist->invoices()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الصيدلية لوجود فواتير مبيعات مسجلة عليها.']);
+        }
+        if ($pharmacist->deals()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الصيدلية لارتباطها باتفاقات أطباء.']);
+        }
+
         try {
             $pharmacist->delete();
             return redirect()->route('admin.pharmacists.index')->with(['success' => 'تم الحذف بنجاح']);

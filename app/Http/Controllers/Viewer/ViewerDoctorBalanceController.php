@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Viewer;
 use App\Http\Controllers\Controller;
 use App\Models\Center;
 use App\Models\Doctor;
-use App\Models\Zone;
 use App\Models\DoctorDeal;
+use App\Models\Zone;
 use Illuminate\Http\Request;
 
 class ViewerDoctorBalanceController extends Controller
@@ -27,17 +27,17 @@ class ViewerDoctorBalanceController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
+            $query->where('name', 'like', '%'.$request->search.'%');
         }
 
         $query->addSelect([
-            'total_earned' => DoctorDeal::selectRaw('SUM(achieved_amount * (commission_percentage / 100))')
+            'total_earned' => DoctorDeal::selectRaw('COALESCE(SUM(CASE WHEN target_amount > 0 THEN commission_amount ELSE (achieved_amount * commission_percentage / 100) END), 0)')
                 ->whereColumn('doctor_id', 'doctors.id')
                 ->where('is_archived', false),
 
-            'total_paid' => DoctorDeal::selectRaw('SUM(paid_amount)')
+            'total_paid' => DoctorDeal::selectRaw('COALESCE(SUM(paid_amount), 0)')
                 ->whereColumn('doctor_id', 'doctors.id')
-                ->where('is_archived', false)
+                ->where('is_archived', false),
         ]);
 
         return $query;
@@ -62,24 +62,31 @@ class ViewerDoctorBalanceController extends Controller
 
     private function exportExcel($doctors)
     {
-        $filename = "doctors_balance_" . date('Y-m-d') . ".csv";
+        $filename = 'doctors_balance_'.date('Y-m-d').'.csv';
+
+        \App\Services\AuditService::log(
+            action: 'exported',
+            module: 'Doctor',
+            description: 'تصدير تقرير الأرصدة المالية للأطباء للمشاهد إلى ملف CSV',
+            newValues: ['count' => count($doctors)]
+        );
 
         $callback = function () use ($doctors) {
             $file = fopen('php://output', 'w');
 
             // إضافة BOM لدعم اللغة العربية في Excel
-            fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-            fputcsv($file, ['تقرير الأرصدة المالية للأطباء']);
+            fputcsv($file, sanitize_csv_row(['تقرير الأرصدة المالية للأطباء']));
             fputcsv($file, []); // سطر فارغ
 
             // ترويسة الجدول
-            fputcsv($file, ['الطبيب', 'المركز', 'إجمالي المبيعات', 'مسحوبات / مقدمات', 'الرصيد الصافي', 'الحالة (دائن / مدين)']);
+            fputcsv($file, sanitize_csv_row(['الطبيب', 'المركز', 'إجمالي المبيعات', 'مسحوبات / مقدمات', 'الرصيد الصافي', 'الحالة (دائن / مدين)']));
 
             foreach ($doctors as $doctor) {
-                $credit = $doctor->total_earned ?? 0;
-                $debit  = $doctor->total_paid ?? 0;
-                $net    = $credit - $debit;
+                $credit = round($doctor->total_earned ?? 0, 2);
+                $debit = round($doctor->total_paid ?? 0, 2);
+                $net = round($credit - $debit, 2);
 
                 $status = 'خالص';
                 if ($net > 0) {
@@ -88,25 +95,25 @@ class ViewerDoctorBalanceController extends Controller
                     $status = 'عليه (مدين)';
                 }
 
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $doctor->name,
                     $doctor->center->name ?? '-',
                     $credit,
                     $debit,
                     $net,
-                    $status
-                ]);
+                    $status,
+                ]));
             }
 
             fclose($file);
         };
 
         return response()->stream($callback, 200, [
-            "Content-Type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma" => "no-cache",
-            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-            "Expires" => "0"
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=$filename",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ]);
     }
 }

@@ -12,7 +12,7 @@
                     <div class="row breadcrumbs-top">
                         <div class="breadcrumb-wrapper col-12">
                             <ol class="breadcrumb">
-                                <li class="breadcrumb-item"><a href="{{route('accountant.dashboard')}}">الرئيسية</a></li>
+                                <li class="breadcrumb-item"><a href="{{route('admin.dashboard')}}">الرئيسية</a></li>
                                 <li class="breadcrumb-item"><a href="{{ route('admin.reports.doctors.index') }}">تقارير الأطباء</a></li>
                                 <li class="breadcrumb-item"><a href="{{ route('admin.reports.doctors.province', $center->province->id) }}">{{ $center->province->name }}</a></li>
                                 <li class="breadcrumb-item active">{{ $center->name }}</li>

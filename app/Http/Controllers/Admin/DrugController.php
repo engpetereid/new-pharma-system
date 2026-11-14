@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Drug;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -12,10 +13,11 @@ class DrugController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // ترتيب الأدوية حسب الأحدث
-        $drugs = Drug::latest()->paginate(10);
+        // عرض كل الأدوية مع أرصدتها وأسعارها
+        $drugs = Drug::filteredInventory($request);
+
         return view('admin.drugs.index', compact('drugs'));
     }
 
@@ -36,10 +38,12 @@ class DrugController extends Controller
         $validatedData = $request->validate([
             'name' => 'required|string|max:255|unique:drugs,name',
             'price' => 'required|numeric|min:0',
+            'production_price' => 'required|numeric|min:0',
             'line' => 'required|in:1,2', // التحقق من أن الخط إما 1 أو 2
         ], [
             'name.unique' => 'اسم الدواء مسجل مسبقاً.',
             'line.required' => 'يرجى اختيار الخط (Line 1 أو Line 2).',
+            'production_price.required' => 'يرجى إدخال سعر الإنتاج (التكلفة) لحساب صافي الربح.',
         ]);
 
         try {
@@ -49,9 +53,11 @@ class DrugController extends Controller
             Drug::create($validatedData);
 
             DB::commit();
+
             return redirect()->route('admin.drugs.index')->with(['success' => 'تم إضافة الدواء بنجاح']);
         } catch (\Exception $exception) {
             DB::rollBack();
+
             return redirect()->back()->withErrors(['error' => $exception->getMessage()])->withInput();
         }
     }
@@ -95,6 +101,7 @@ class DrugController extends Controller
         // 3. تصدير إكسيل
         if ($request->has('export') && $request->export == 'excel') {
             $exportData = (clone $query)->with(['invoice.pharmacist', 'invoice.representative'])->latest()->get();
+
             return $this->exportExcel($exportData, $drug, $totalQuantitySold, $totalRevenue);
         }
 
@@ -119,31 +126,38 @@ class DrugController extends Controller
      */
     private function exportExcel($data, $drug, $totalQty, $totalRev)
     {
-        $filename = "drug_report_{$drug->id}_" . date('Y-m-d') . ".csv";
+        $filename = "drug_report_{$drug->id}_".date('Y-m-d').'.csv';
+
+        AuditService::log(
+            action: 'export_csv',
+            module: 'Drug',
+            entity: $drug,
+            description: "تصدير تقرير مبيعات الصنف ({$drug->name}) إلى ملف CSV"
+        );
 
         $callback = function () use ($data, $drug, $totalQty, $totalRev) {
             $file = fopen('php://output', 'w');
 
             // إضافة BOM لدعم اللغة العربية في Excel
-            fputs($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fwrite($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-            fputcsv($file, ['تقرير صنف:', $drug->name]);
-            fputcsv($file, ['إجمالي الكمية المباعة:', $totalQty]);
-            fputcsv($file, ['إجمالي الإيرادات:', number_format($totalRev, 2) . ' ج.م']);
+            fputcsv($file, sanitize_csv_row(['تقرير صنف:', $drug->name]));
+            fputcsv($file, sanitize_csv_row(['إجمالي الكمية المباعة:', $totalQty]));
+            fputcsv($file, sanitize_csv_row(['إجمالي الإيرادات:', number_format($totalRev, 2).' ج.م']));
             fputcsv($file, []);
 
             // ترويسة الجدول
-            fputcsv($file, ['رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المندوب', 'الكمية', 'سعر البيع', 'الإجمالي', 'حالة الفاتورة']);
+            fputcsv($file, sanitize_csv_row(['رقم الفاتورة', 'التاريخ', 'الصيدلية', 'المندوب', 'الكمية', 'سعر البيع', 'الإجمالي', 'حالة الفاتورة']));
 
             foreach ($data as $detail) {
-                $statusText = match ((int)($detail->invoice->status ?? 0)) {
+                $statusText = match ((int) ($detail->invoice->status ?? 0)) {
                     1 => 'مدفوع',
                     2 => 'آجل',
                     3 => 'جزئي',
                     default => '-'
                 };
 
-                fputcsv($file, [
+                fputcsv($file, sanitize_csv_row([
                     $detail->invoice->serial_number ?? $detail->invoice_id,
                     $detail->invoice->invoice_date ?? '-',
                     $detail->invoice->pharmacist->name ?? '-',
@@ -151,18 +165,18 @@ class DrugController extends Controller
                     $detail->quantity,
                     $detail->unit_price,
                     $detail->row_total,
-                    $statusText
-                ]);
+                    $statusText,
+                ]));
             }
             fclose($file);
         };
 
         return response()->stream($callback, 200, [
-            "Content-Type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma" => "no-cache",
-            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
-            "Expires" => "0"
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=$filename",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ]);
     }
 
@@ -180,9 +194,12 @@ class DrugController extends Controller
     public function update(Request $request, Drug $drug)
     {
         $validatedData = $request->validate([
-            'name' => 'required|string|max:255|unique:drugs,name,' . $drug->id,
+            'name' => 'required|string|max:255|unique:drugs,name,'.$drug->id,
             'price' => 'required|numeric|min:0',
+            'production_price' => 'required|numeric|min:0',
             'line' => 'required|in:1,2',
+        ], [
+            'production_price.required' => 'يرجى إدخال سعر الإنتاج (التكلفة) لحساب صافي الربح.',
         ]);
 
         try {
@@ -190,9 +207,11 @@ class DrugController extends Controller
             $drug->update($validatedData);
 
             DB::commit();
+
             return redirect()->route('admin.drugs.index')->with(['success' => 'تم تعديل بيانات الدواء بنجاح']);
         } catch (\Exception $exception) {
             DB::rollBack();
+
             return redirect()->back()->withErrors(['error' => $exception->getMessage()])->withInput();
         }
     }
@@ -202,11 +221,23 @@ class DrugController extends Controller
      */
     public function destroy(Drug $drug)
     {
+        // الحذف يتتالى (cascade) على بنود الفواتير والمرتجعات والمخزون، لذا يُمنع عند وجود حركة
+        if (\App\Models\InvoiceDetail::where('drug_id', $drug->id)->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الدواء لوجود فواتير مبيعات تحتوي عليه.']);
+        }
+        if ($drug->warehouses()->wherePivot('quantity', '>', 0)->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الدواء لوجود رصيد له في المخازن.']);
+        }
+        if ($drug->deals()->exists()) {
+            return redirect()->back()->withErrors(['error' => 'لا يمكن حذف الدواء لارتباطه باتفاقات أطباء.']);
+        }
+
         try {
             $drug->delete();
+
             return redirect()->route('admin.drugs.index')->with(['success' => 'تم حذف الدواء بنجاح']);
         } catch (\Exception $exception) {
-            return redirect()->back()->withErrors(['error' => 'حدث خطأ أثناء الحذف: ' . $exception->getMessage()]);
+            return redirect()->back()->withErrors(['error' => 'حدث خطأ أثناء الحذف: '.$exception->getMessage()]);
         }
     }
 }

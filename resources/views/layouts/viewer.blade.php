@@ -4,13 +4,14 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui">
-    <meta name="description"
-          content="Modern admin is super flexible, powerful, clean &amp; modern responsive bootstrap 4 admin template with unlimited possibilities with bitcoin dashboard.">
-    <meta name="keywords"
-          content="admin template, modern admin template, dashboard template, flat admin template, responsive admin template, web app, crypto dashboard, bitcoin dashboard">
-    <meta name="author" content="PIXINVENT">
-    <title>@yield('title')</title>
-    <link rel="shortcut icon" type="image/x-icon" href="{{asset('assets/admin/images/ico/logo.jpg')}}">
+    <meta name="description" content="RUQAX Pharmaceuticals — Innovation for better health">
+    
+    <meta name="author" content="RUQAX Pharmaceuticals">
+    <title>@yield('title') | RUQAX</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{asset('assets/admin/images/brand/favicon-32.png')}}">
+    <link rel="shortcut icon" href="{{asset('assets/admin/images/brand/favicon.ico')}}">
+    <link rel="apple-touch-icon" href="{{asset('assets/admin/images/brand/favicon-180.png')}}">
+    <meta name="theme-color" content="#323E4D">
 
     <link
         href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,600,600i,700,700i|Quicksand:300,400,500,700"
@@ -50,20 +51,128 @@
     <link rel="stylesheet" type="text/css" href="{{asset('assets/admin/css/style.css')}}">
 
     @yield('style')
-    <link href="https://fonts.googleapis.com/css?family=Cairo&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body, h1, h2, h3, h4, h5, h6, .navigation-header, .brand-text {
-            font-family: 'Cairo', sans-serif !important;
+        body, h1, h2, h3, h4, h5, h6, .navigation-header, .brand-text, .main-menu, .navbar, table, input, select, textarea, button {
+            font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
         }
 
+        body {
+            font-size: 14.5px;
+            line-height: 1.65;
+            color: #1e293b;
+            font-weight: 500;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            color: #0f172a;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
+        }
+
+        /* High clarity for tables */
+        table {
+            color: #1e293b;
+        }
+
+        .table thead th {
+            font-size: 13.5px;
+            font-weight: 700 !important;
+            color: #0f172a !important;
+            background-color: #f8fafc;
+            border-bottom: 2px solid #e2e8f0;
+            vertical-align: middle;
+        }
+
+        .table tbody td {
+            font-size: 14px;
+            font-weight: 500;
+            color: #1e293b;
+            vertical-align: middle;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .table-striped tbody tr:nth-of-type(odd) {
+            background-color: rgba(248, 250, 252, 0.7);
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: #f1f5f9;
+        }
+
+        /* High clarity for form inputs */
         input.form-control,
         textarea.form-control,
         select.form-control {
             direction: rtl;
             text-align: right;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            color: #0f172a !important;
+            border-color: #cbd5e1;
+            line-height: 1.5;
         }
-        * {
-            font-weight: 1000 !important;
+
+        .form-control:focus {
+            color: #0f172a !important;
+            border-color: #1E9FF2;
+            box-shadow: 0 0 0 0.2rem rgba(30, 159, 242, 0.15);
+        }
+
+        .form-control::placeholder {
+            color: #94a3b8 !important;
+            font-weight: 400;
+        }
+
+        label {
+            font-size: 13.5px;
+            font-weight: 600 !important;
+            color: #1e293b;
+            margin-bottom: 0.35rem;
+        }
+
+        /* Navigation & Sidebar clarity */
+        .main-menu .navigation li a {
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            color: #334155 !important;
+        }
+
+        .main-menu .navigation .navigation-header span {
+            font-size: 12px !important;
+            font-weight: 800 !important;
+            color: #64748b !important;
+            letter-spacing: 0.5px;
+        }
+
+        /* Text muted & small contrast improvement */
+        .text-muted, small {
+            color: #475569 !important;
+            font-weight: 500;
+        }
+
+        /* Badges */
+        .badge {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            padding: 0.4em 0.7em !important;
+            letter-spacing: 0;
+        }
+
+        .card .card-title {
+            font-size: 1.15rem;
+            font-weight: 700 !important;
+            color: #0f172a;
+        }
+
+        .card .card-subtitle {
+            color: #475569;
+            font-size: 0.9rem;
         }
 
         .has-icon-left .form-control {
@@ -143,6 +252,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" type="text/css" href="{{asset('assets/admin/css/ruqax-theme.css')}}">
 </head>
 <body class="vertical-layout vertical-menu 2-columns menu-expanded fixed-navbar"
       data-open="click" data-menu="vertical-menu" data-col="2-columns">
