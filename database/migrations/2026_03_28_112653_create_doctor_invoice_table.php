@@ -44,9 +44,21 @@ return new class extends Migration
     {
         Schema::dropIfExists('doctor_invoice');
 
+        if (! Schema::hasColumn('invoices', 'doctor_id')) {
+            Schema::table('invoices', function (Blueprint $table) {
+                $table->unsignedBigInteger('doctor_id')->nullable();
+            });
+        }
+
+        if (! Schema::hasColumn('invoices', 'doctor_commission_percentage')) {
+            Schema::table('invoices', function (Blueprint $table) {
+                $table->decimal('doctor_commission_percentage', 5, 2)->default(0)->after('doctor_id');
+            });
+        }
+
+        // up() dropped only the foreign key, so restore it
         Schema::table('invoices', function (Blueprint $table) {
-            $table->unsignedBigInteger('doctor_id')->nullable();
-            $table->decimal('doctor_commission_percentage', 5, 2)->default(0);
+            $table->foreign('doctor_id')->references('id')->on('doctors')->onDelete('cascade');
         });
     }
 };
